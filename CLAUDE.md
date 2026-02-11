@@ -111,9 +111,52 @@ make update              # git pull + rebuild + restart
 | `ENV` | `dev` / `prod` / `test` | `prod` |
 | `ENABLE_OLLAMA_API` / `ENABLE_OPENAI_API` | Feature toggles | `true` |
 
+## Git & Remotes
+
+- `origin` → `jsboige/open-webui` (fork, pour pousser)
+- `upstream` → `open-webui/open-webui` (officiel, pour tirer les mises à jour)
+- Upstream is tracked on `main`; local work on `dev`
+- Sync upstream: `git fetch upstream && git rebase upstream/dev && git push origin dev`
+
 ## Notes
 
-- The `.env` files at root (myia.env, epf.env, etc.) contain secrets — never commit them
-- Upstream is tracked on `main`; local work on `dev`
+- The `.env` files at root (myia.env, epf.env, etc.) contain secrets — never commit them. The `.gitignore` blocks `*.env` and allows `*.env.example`
+- Use `tenant.env.example` as template for new tenants
 - The Dockerfile is a multi-stage build: Node.js (frontend) → Python 3.11 slim (backend), exposed on port 8080 internally
 - Build args `USE_CUDA`, `USE_OLLAMA`, `USE_SLIM` control Dockerfile variants
+- Playwright auth credentials for testing are in `.env` at repo root (gitignored): `MYIA_URL`, `MYIA_EMAIL`, `MYIA_PASSWORD`
+
+## Maintenance Roadmap (instance myia)
+
+Work in progress — each phase validates on myia first, then deploys to student tenants.
+
+### Phase 1: API Connections & Model Cleanup (myia)
+- [x] Audit all 12 OpenAI-compatible connections (OpenAI, OpenRouter, Groq, DeepSeek, MistralAI, GoogleDirect, Local/vLLM, Pipelines)
+- [x] Curated OpenRouter filter: 42 models across 10 providers (Anthropic, OpenAI, Google, Mistral, DeepSeek, Z.ai, xAI, Meta, Qwen, NVIDIA) with BYOK keys
+- [x] GoogleDirect disabled — Google models served via OpenRouter BYOK (avoids 429 quota issue)
+- [x] OpenAI filter: 17 chat/reasoning models (removed audio, realtime, image, moderation, sora, transcribe)
+- [x] MistralAI filter: 16 chat/code/reasoning models (removed embed, moderation, voxtral/audio, OCR)
+- [x] Groq filter: 10 chat models (removed whisper, guard, safeguard, orpheus/TTS)
+- [x] Deploy Pipelines container (`ghcr.io/open-webui/pipelines:main`) on internal Docker network
+- [x] Verify vLLM servers: mini=Qwen3-VL-8B-Thinking (5001), medium=GLM-4.7-Flash (5002) — both healthy
+- [ ] Install useful pipelines (filters, function calling, etc.)
+
+### Phase 2: Services & Settings (myia)
+- [x] Fix default locale → `fr-FR` (set in database, takes effect on restart)
+- [x] Audit image generation: SD WebUI Forge (`turbo.sd-forge.myia.io`) — Flux model, working
+- [x] Audit TTS/STT: OpenAI `tts-1`/`whisper-1` — functional
+- [x] Audit embeddings: OpenAI `text-embedding-3-small` + ChromaDB + Tika — functional
+- [x] Audit web search: SearXNG @ `search.myia.io` — functional
+- [ ] Rebuild knowledge bases
+- [ ] Review and activate useful functions (Artifacts V2, MoEA)
+- [ ] Consider Groq Whisper for STT (faster, cheaper) or local alternatives
+
+### Phase 3: Deploy to Student Tenants
+- [ ] Export validated config from myia (model filters, connections, functions, tools)
+- [ ] Apply to each tenant: epf, epf-genai, ece, esg, epita, pauwels
+- [ ] Rebuild knowledge bases per tenant as needed
+- [ ] Verify each tenant's API keys and quotas
+
+### Phase 4: Local Infrastructure (future)
+- [ ] Evaluate moving some cloud services to local infra (vLLM, embeddings, STT)
+- [ ] Compare SOTA cloud models vs local hosting cost/performance
