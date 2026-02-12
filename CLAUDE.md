@@ -145,11 +145,14 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Fix default locale → `fr-FR` (set in database, takes effect on restart)
 - [x] Audit image generation: SD WebUI Forge (`turbo.sd-forge.myia.io`) — Flux model, working
 - [x] Audit TTS/STT: OpenAI `tts-1`/`whisper-1` — functional
-- [x] Audit embeddings: OpenAI `text-embedding-3-small` + ChromaDB + Tika — functional
+- [x] Audit embeddings: switched to local `qwen3-4b-awq-embedding` @ `embeddings.myia.io/v1` (dim=2560, batch=16)
+- [x] Switch vector DB: ChromaDB → Qdrant @ `qdrant.myia.io` (12 existing collections)
 - [x] Audit web search: SearXNG @ `search.myia.io` — functional
-- [ ] Rebuild knowledge bases
-- [ ] Review and activate useful functions (Artifacts V2, MoEA)
-- [ ] Consider Groq Whisper for STT (faster, cheaper) or local alternatives
+- [x] Activate functions: Artifacts V2, MoEA, Mixture of Agents — all active + global
+- [x] Whisper WebUI @ `whisper-webui.myia.io`: Gradio-based, **NO OpenAI-compatible REST API** (only Gradio `/run/transcribe_file`)
+- [ ] Rebuild knowledge bases (currently 0 — need to create new ones with Qdrant + local embeddings)
+- [ ] Deploy local STT: speaches-ai/speaches for OpenAI-compatible `/v1/audio/transcriptions`, or use built-in faster-whisper
+- [ ] Verify embedding service is running (currently unresponsive at `embeddings.myia.io`)
 
 ### Phase 3: Deploy to Student Tenants
 - [ ] Export validated config from myia (model filters, connections, functions, tools)
@@ -160,3 +163,4 @@ Work in progress — each phase validates on myia first, then deploys to student
 ### Phase 4: Local Infrastructure (future)
 - [ ] Evaluate moving some cloud services to local infra (vLLM, embeddings, STT)
 - [ ] Compare SOTA cloud models vs local hosting cost/performance
+- [ ] Deploy embedding service container (vLLM or TEI) for `qwen3-4b-awq-embedding`
