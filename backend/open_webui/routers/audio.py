@@ -186,6 +186,9 @@ class STTConfigForm(BaseModel):
     MISTRAL_API_KEY: str
     MISTRAL_API_BASE_URL: str
     MISTRAL_USE_CHAT_COMPLETIONS: bool
+    WHISPER_WEBUI_BASE_URL: str = ""
+    WHISPER_WEBUI_USERNAME: str = ""
+    WHISPER_WEBUI_PASSWORD: str = ""
 
 
 class AudioConfigUpdateForm(BaseModel):
@@ -225,6 +228,9 @@ async def get_audio_config(request: Request, user=Depends(get_admin_user)):
             "MISTRAL_API_KEY": request.app.state.config.AUDIO_STT_MISTRAL_API_KEY,
             "MISTRAL_API_BASE_URL": request.app.state.config.AUDIO_STT_MISTRAL_API_BASE_URL,
             "MISTRAL_USE_CHAT_COMPLETIONS": request.app.state.config.AUDIO_STT_MISTRAL_USE_CHAT_COMPLETIONS,
+            "WHISPER_WEBUI_BASE_URL": request.app.state.config.AUDIO_STT_WHISPER_WEBUI_BASE_URL,
+            "WHISPER_WEBUI_USERNAME": request.app.state.config.AUDIO_STT_WHISPER_WEBUI_USERNAME,
+            "WHISPER_WEBUI_PASSWORD": request.app.state.config.AUDIO_STT_WHISPER_WEBUI_PASSWORD,
         },
     }
 
@@ -273,6 +279,15 @@ async def update_audio_config(
     request.app.state.config.AUDIO_STT_MISTRAL_USE_CHAT_COMPLETIONS = (
         form_data.stt.MISTRAL_USE_CHAT_COMPLETIONS
     )
+    request.app.state.config.AUDIO_STT_WHISPER_WEBUI_BASE_URL = (
+        form_data.stt.WHISPER_WEBUI_BASE_URL
+    )
+    request.app.state.config.AUDIO_STT_WHISPER_WEBUI_USERNAME = (
+        form_data.stt.WHISPER_WEBUI_USERNAME
+    )
+    request.app.state.config.AUDIO_STT_WHISPER_WEBUI_PASSWORD = (
+        form_data.stt.WHISPER_WEBUI_PASSWORD
+    )
 
     if request.app.state.config.STT_ENGINE == "":
         request.app.state.faster_whisper_model = set_faster_whisper_model(
@@ -311,6 +326,9 @@ async def update_audio_config(
             "MISTRAL_API_KEY": request.app.state.config.AUDIO_STT_MISTRAL_API_KEY,
             "MISTRAL_API_BASE_URL": request.app.state.config.AUDIO_STT_MISTRAL_API_BASE_URL,
             "MISTRAL_USE_CHAT_COMPLETIONS": request.app.state.config.AUDIO_STT_MISTRAL_USE_CHAT_COMPLETIONS,
+            "WHISPER_WEBUI_BASE_URL": request.app.state.config.AUDIO_STT_WHISPER_WEBUI_BASE_URL,
+            "WHISPER_WEBUI_USERNAME": request.app.state.config.AUDIO_STT_WHISPER_WEBUI_USERNAME,
+            "WHISPER_WEBUI_PASSWORD": request.app.state.config.AUDIO_STT_WHISPER_WEBUI_PASSWORD,
         },
     }
 
@@ -1040,6 +1058,186 @@ def transcription_handler(request, file_path, metadata, user=None):
             raise HTTPException(
                 status_code=getattr(r, "status_code", 500) if r else 500,
                 detail=detail if detail else "Open WebUI: Server Connection Error",
+            )
+
+    elif request.app.state.config.STT_ENGINE == "whisper_webui":
+        # Whisper WebUI (Gradio) STT via Gradio API
+        base_url = request.app.state.config.AUDIO_STT_WHISPER_WEBUI_BASE_URL
+        username = request.app.state.config.AUDIO_STT_WHISPER_WEBUI_USERNAME
+        password = request.app.state.config.AUDIO_STT_WHISPER_WEBUI_PASSWORD
+
+        if not base_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Whisper WebUI base URL is required",
+            )
+
+        try:
+            session = requests.Session()
+
+            # Step 1: Authenticate to Gradio (session cookie)
+            if username and password:
+                login_r = session.post(
+                    f"{base_url}/login",
+                    data={"username": username, "password": password},
+                    verify=False,
+                    timeout=10,
+                )
+                if login_r.status_code != 200 or not login_r.json().get("success"):
+                    raise Exception("Whisper WebUI authentication failed")
+
+            # Step 2: Upload the audio file via Gradio upload endpoint
+            with open(file_path, "rb") as audio_file:
+                upload_r = session.post(
+                    f"{base_url}/gradio_api/upload",
+                    files={"files": (filename, audio_file)},
+                    verify=False,
+                    timeout=60,
+                )
+            upload_r.raise_for_status()
+            uploaded_files = upload_r.json()
+
+            if not uploaded_files or not isinstance(uploaded_files, list):
+                raise Exception("Whisper WebUI file upload failed")
+
+            file_ref = {
+                "path": uploaded_files[0],
+                "meta": {"_type": "gradio.FileData"},
+            }
+
+            # Step 3: Call transcribe_file via Gradio call API
+            # Build the 54 params with sensible defaults
+            # Key params: files, input_folder_path, include_subdirectory,
+            # save_same_dir, file_format, add_timestamp, model, language, ...
+            language = metadata.get("language", "french") if metadata else "french"
+
+            # Params ordered per Gradio API info:
+            # 0: files, 1: input_folder_path, 2: include_subdirectory,
+            # 3: save_same_dir, 4: file_format, 5: add_timestamp,
+            # 6: model, 7: language, 8: translate_to_english,
+            # 9: beam_size, 10: log_prob_threshold, 11: no_speech_threshold,
+            # 12: compute_type, 13: best_of, 14: patience,
+            # 15: condition_on_prev, 16: prompt_reset_on_temp,
+            # 17: initial_prompt, 18: temperature, 19: compression_ratio_threshold,
+            # 20: length_penalty, 21: repetition_penalty,
+            # 22: no_repeat_ngram_size, 23: prefix, 24: suppress_blank,
+            # 25: suppress_tokens, 26: max_initial_timestamp,
+            # 27: word_timestamps, 28: prepend_punctuations,
+            # 29: append_punctuations, 30: max_new_tokens,
+            # 31: chunk_length_s, 32: hallucination_silence_threshold,
+            # 33: hotwords, 34: lang_detection_threshold,
+            # 35: lang_detection_segments, 36: batch_size,
+            # 37: offload_sub_model, 38-43: VAD params,
+            # 44-47: diarization params, 48-53: BGM params
+            gradio_data = {
+                "data": [
+                    [file_ref],       # 0: files
+                    "",               # 1: input_folder_path
+                    False,            # 2: include_subdirectory
+                    True,             # 3: save_same_dir
+                    "txt",            # 4: file_format
+                    False,            # 5: add_timestamp
+                    "large-v3-turbo", # 6: model
+                    language,         # 7: language
+                    False,            # 8: translate to English
+                    5,                # 9: beam_size
+                    -1.0,             # 10: log_prob_threshold
+                    0.6,              # 11: no_speech_threshold
+                    "float16",        # 12: compute_type
+                    5,                # 13: best_of
+                    1.0,              # 14: patience
+                    True,             # 15: condition_on_previous_text
+                    0.5,              # 16: prompt_reset_on_temperature
+                    "",               # 17: initial_prompt
+                    0.0,              # 18: temperature
+                    2.4,              # 19: compression_ratio_threshold
+                    1.0,              # 20: length_penalty
+                    1.0,              # 21: repetition_penalty
+                    0,                # 22: no_repeat_ngram_size
+                    "",               # 23: prefix
+                    True,             # 24: suppress_blank
+                    "[-1]",           # 25: suppress_tokens
+                    1.0,              # 26: max_initial_timestamp
+                    False,            # 27: word_timestamps
+                    "\"'\u00bf([{-",  # 28: prepend_punctuations
+                    ".\u3002,\uff0c!\uff01?\uff1f:\uff1a\")]\u300d}\u3001",  # 29: append_punctuations
+                    3,                # 30: max_new_tokens
+                    30,               # 31: chunk_length_s
+                    3.0,              # 32: hallucination_silence_threshold
+                    "",               # 33: hotwords
+                    0.5,              # 34: language_detection_threshold
+                    1,                # 35: language_detection_segments
+                    24,               # 36: batch_size
+                    True,             # 37: offload sub model
+                    False,            # 38: enable Silero VAD
+                    0.5,              # 39: VAD speech_threshold
+                    250,              # 40: VAD min_speech_duration_ms
+                    9999,             # 41: VAD max_speech_duration_s
+                    1000,             # 42: VAD min_silence_duration_ms
+                    2000,             # 43: VAD speech_padding_ms
+                    False,            # 44: enable diarization
+                    "cuda",           # 45: diarization device
+                    "UVR-MDX-NET-Inst_HQ_4",  # 46: HuggingFace Token
+                    False,            # 47: offload diarization sub model
+                    False,            # 48: enable BGM remover
+                    "UVR-MDX-NET-Inst_HQ_4",  # 49: BGM model
+                    "cuda",           # 50: BGM device
+                    256,              # 51: BGM segment_size
+                    False,            # 52: save separated files
+                    True,             # 53: offload BGM sub model
+                ],
+            }
+
+            call_r = session.post(
+                f"{base_url}/gradio_api/call/transcribe_file",
+                json=gradio_data,
+                verify=False,
+                timeout=30,
+            )
+            call_r.raise_for_status()
+            event_id = call_r.json().get("event_id")
+
+            if not event_id:
+                raise Exception("Whisper WebUI: no event_id returned")
+
+            # Step 4: Poll for result via SSE endpoint
+            result_r = session.get(
+                f"{base_url}/gradio_api/call/transcribe_file/{event_id}",
+                verify=False,
+                timeout=300,
+                stream=True,
+            )
+            result_r.raise_for_status()
+
+            transcript = ""
+            for line in result_r.iter_lines(decode_unicode=True):
+                if line and line.startswith("data: "):
+                    try:
+                        sse_data = json.loads(line[6:])
+                        # Gradio returns [output_text, output_file]
+                        if isinstance(sse_data, list) and len(sse_data) >= 1:
+                            transcript = sse_data[0] or ""
+                    except json.JSONDecodeError:
+                        pass
+
+            if not transcript.strip():
+                raise ValueError("Empty transcript from Whisper WebUI")
+
+            data = {"text": transcript.strip()}
+
+            # Save transcript to json file
+            transcript_file = f"{file_dir}/{id}.json"
+            with open(transcript_file, "w") as f:
+                json.dump(data, f)
+
+            log.debug(data)
+            return data
+
+        except Exception as e:
+            log.exception(e)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Whisper WebUI STT error: {str(e)}",
             )
 
 
