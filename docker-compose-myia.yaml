@@ -47,6 +47,17 @@ services:
               count: 1
               capabilities: [gpu]
     restart: unless-stopped
+  whisper-stt-adapter:
+    build:
+      context: ./whisper-webui-adapter
+      dockerfile: Dockerfile
+    environment:
+      - 'WHISPER_WEBUI_BASE_URL=https://whisper-webui.myia.io'
+      - 'WHISPER_WEBUI_USERNAME=admin'
+      - 'WHISPER_WEBUI_PASSWORD=goldman'
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
   redis:
     image: docker.io/valkey/valkey:8.0.1-alpine
     volumes:
