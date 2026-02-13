@@ -33,6 +33,20 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-gpu:latest
+    ports:
+      - "8880:8880"
+    volumes:
+      - kokoro-data:/app/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
   redis:
     image: docker.io/valkey/valkey:8.0.1-alpine
     volumes:
@@ -61,4 +75,5 @@ services:
 volumes:
   open-webui: {}
   pipelines-data: {}
+  kokoro-data: {}
   redis-data: {}

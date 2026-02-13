@@ -149,10 +149,12 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Switch vector DB: ChromaDB → Qdrant @ `qdrant.myia.io` (12 existing collections)
 - [x] Audit web search: SearXNG @ `search.myia.io` — functional
 - [x] Activate functions: Artifacts V2, MoEA, Mixture of Agents — all active + global
-- [x] Whisper WebUI @ `whisper-webui.myia.io`: Gradio-based, **NO OpenAI-compatible REST API** (only Gradio `/run/transcribe_file`)
+- [x] Whisper WebUI STT wrapper: custom `whisper_webui` engine added to Open WebUI, wraps Gradio API of `whisper-webui.myia.io`
+- [x] Deploy Kokoro-FastAPI TTS (`ghcr.io/remsky/kokoro-fastapi-gpu:latest`) on port 8880, OpenAI-compatible `/v1/audio/speech`
+- [ ] Configure TTS to use Kokoro (Engine=OpenAI, Base URL=`http://kokoro-tts:8880/v1`)
+- [ ] Configure STT to use Whisper WebUI (Engine=`whisper_webui`, Base URL=`https://whisper-webui.myia.io`)
 - [ ] Rebuild knowledge bases (currently 0 — need to create new ones with Qdrant + local embeddings)
-- [ ] Deploy local STT: speaches-ai/speaches for OpenAI-compatible `/v1/audio/transcriptions`, or use built-in faster-whisper
-- [ ] Verify embedding service is running (currently unresponsive at `embeddings.myia.io`)
+- [ ] Verify embedding service is running (confirmed functional by Roo)
 
 ### Phase 3: Deploy to Student Tenants
 - [ ] Export validated config from myia (model filters, connections, functions, tools)
