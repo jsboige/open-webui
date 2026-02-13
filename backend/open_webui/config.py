@@ -3915,28 +3915,6 @@ AUDIO_STT_MISTRAL_USE_CHAT_COMPLETIONS = PersistentConfig(
     os.getenv("AUDIO_STT_MISTRAL_USE_CHAT_COMPLETIONS", "false").lower() == "true",
 )
 
-####################################
-# Whisper WebUI (Gradio) STT
-####################################
-
-AUDIO_STT_WHISPER_WEBUI_BASE_URL = PersistentConfig(
-    "AUDIO_STT_WHISPER_WEBUI_BASE_URL",
-    "audio.stt.whisper_webui.base_url",
-    os.getenv("AUDIO_STT_WHISPER_WEBUI_BASE_URL", ""),
-)
-
-AUDIO_STT_WHISPER_WEBUI_USERNAME = PersistentConfig(
-    "AUDIO_STT_WHISPER_WEBUI_USERNAME",
-    "audio.stt.whisper_webui.username",
-    os.getenv("AUDIO_STT_WHISPER_WEBUI_USERNAME", ""),
-)
-
-AUDIO_STT_WHISPER_WEBUI_PASSWORD = PersistentConfig(
-    "AUDIO_STT_WHISPER_WEBUI_PASSWORD",
-    "audio.stt.whisper_webui.password",
-    os.getenv("AUDIO_STT_WHISPER_WEBUI_PASSWORD", ""),
-)
-
 AUDIO_TTS_OPENAI_API_BASE_URL = PersistentConfig(
     "AUDIO_TTS_OPENAI_API_BASE_URL",
     "audio.tts.openai.api_base_url",
