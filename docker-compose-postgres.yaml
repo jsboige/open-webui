@@ -1,0 +1,56 @@
+# PostgreSQL Server for Open WebUI Multi-Tenant
+# One database per tenant: myia_db, epf_db, epf_genai_db, ece_db, esg_db, epita_db, pauwels_db
+#
+# Usage:
+#   docker compose -f docker-compose-postgres.yaml up -d
+#
+# After startup, run the init script to create databases:
+#   docker exec -i open-webui-postgres psql -U openwebui -d postgres < scripts/init-postgres.sql
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: open-webui-postgres
+    environment:
+      POSTGRES_USER: openwebui
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openwebui_secret}
+      POSTGRES_DB: postgres  # Administrative database
+      # Performance tuning
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - open-webui-shared
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openwebui -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    # Resource limits (adjust based on your server)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Security
+    security_opt:
+      - "no-new-privileges:true"
+
+volumes:
+  postgres-data: {}
+
+networks:
+  open-webui-shared:
+    external: true
