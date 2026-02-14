@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **fork/clone of Open WebUI** (v0.6.43) — an extensible, self-hosted AI chat platform. This specific instance is used to run **multiple tenant deployments** (myia, epf, ece, esg, epita, pauwels, epf-genai) via per-tenant docker-compose and env files on the same machine.
+This is a **fork/clone of Open WebUI** (v0.7.2) — an extensible, self-hosted AI chat platform. This specific instance is used to run **multiple tenant deployments** (myia, epf, ece, esg, epita, pauwels, epf-genai) via per-tenant docker-compose and env files on the same machine.
 
 **Stack**: SvelteKit 2 + Svelte 5 (frontend) / FastAPI 0.128 + SQLAlchemy 2 (backend) / Python 3.11+
 
@@ -139,22 +139,34 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Groq filter: 10 chat models (removed whisper, guard, safeguard, orpheus/TTS)
 - [x] Deploy Pipelines container (`ghcr.io/open-webui/pipelines:main`) on internal Docker network
 - [x] Verify vLLM servers: mini=Qwen3-VL-8B-Thinking (5001), medium=GLM-4.7-Flash (5002) — both healthy
-- [ ] Install useful pipelines (filters, function calling, etc.)
+- [x] Install pipelines: rate_limit_filter, conversation_turn_limit_filter, detoxify_filter, python_code_pipeline
 
 ### Phase 2: Services & Settings (myia)
 - [x] Fix default locale → `fr-FR` (set in database, takes effect on restart)
 - [x] Audit image generation: SD WebUI Forge (`turbo.sd-forge.myia.io`) — Flux model, working
 - [x] Audit TTS/STT: OpenAI `tts-1`/`whisper-1` — functional
 - [x] Audit embeddings: switched to local `qwen3-4b-awq-embedding` @ `embeddings.myia.io/v1` (dim=2560, batch=16)
-- [x] Switch vector DB: ChromaDB → Qdrant @ `qdrant.myia.io` (12 existing collections)
+- [x] Switch vector DB: ChromaDB → Qdrant @ `qdrant.myia.io:443` (fix: must include `:443` for HTTPS reverse proxy — qdrant-client adds `:6333` otherwise)
 - [x] Audit web search: SearXNG @ `search.myia.io` — functional
-- [x] Activate functions: Artifacts V2, MoEA, Mixture of Agents — all active + global
+- [x] Activate functions: MoEA + Mixture of Agents active+global. Artifacts V2 **disabled** (broken `open_webui.apps` import in v0.7.2)
 - [x] Deploy Kokoro-FastAPI TTS (`ghcr.io/remsky/kokoro-fastapi-gpu:latest`) on port 8880, 67 voices, French=`ff_siwis`
 - [x] Configure TTS to use Kokoro: Engine=OpenAI, Base URL=`http://kokoro-tts:8880/v1`, Model=kokoro, Voice=ff_siwis — tested end-to-end
 - [x] Deploy Whisper WebUI STT adapter sidecar (`whisper-webui-adapter/`) — OpenAI-compatible proxy to Gradio API of `whisper-webui.myia.io`
 - [x] Configure STT to use adapter: Engine=OpenAI, Base URL=`http://whisper-stt-adapter:8787/v1` — tested end-to-end ("Bonjour, ceci est un test.")
-- [x] Verify embedding service is running (confirmed functional by Roo)
-- [ ] Rebuild knowledge bases (currently 0 — need to create new ones with Qdrant + local embeddings)
+- [x] Verify embedding service is running (confirmed functional)
+- [x] Fix Qdrant URI: must be `https://qdrant.myia.io:443` (qdrant-client defaults to port 6333 when not specified)
+- [x] Create test knowledge base "Guide MyIA" — RAG pipeline validated (upload → Tika extraction → embedding → Qdrant → retrieval)
+- [x] Cleaned up unused tool: removed `home_assistant_tool`
+- [x] Install pipelines: rate_limit_filter (10 req/min), conversation_turn_limit_filter (10 turns/user), detoxify_filter, python_code_pipeline
+- [ ] Update/replace Artifacts V2 function with v0.7.2-compatible version
+
+### Phase 2b: Channels & Collaboration (myia)
+- [x] Channels feature enabled (`features.channels: true` in user permissions)
+- [x] Created channels: `general` (public), `ai-playground` (public)
+- [x] Tested @mention model responses: `<@M:Local.glm-4.7-flash|GLM-4.7-Flash>` — model responds in thread
+- [ ] Create user groups for access control
+- [x] Evaluated bot framework ([open-webui/bot](https://github.com/open-webui/bot)) — **NOT deploying**: broken v0.7.2 compatibility (event name mismatch), native @mention already works
+- [ ] Set up webhooks for external integrations
 
 ### Phase 3: Deploy to Student Tenants
 - [ ] Export validated config from myia (model filters, connections, functions, tools)
