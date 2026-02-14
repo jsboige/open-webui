@@ -18,8 +18,11 @@ services:
       - 'QDRANT_URI=${QDRANT_URI}'
       - 'QDRANT_API_KEY=${QDRANT_API_KEY}'
       - 'AIOHTTP_CLIENT_TIMEOUT=${AIOHTTP_CLIENT_TIMEOUT-6000}'
+      - 'DATABASE_URL=${DATABASE_URL}'
     extra_hosts:
       - host.docker.internal:host-gateway
+    networks:
+      - open-webui-shared
     restart: unless-stopped
   tika:
     image: apache/tika:latest-full
@@ -88,3 +91,7 @@ volumes:
   pipelines-data: {}
   kokoro-data: {}
   redis-data: {}
+
+networks:
+  open-webui-shared:
+    external: true
