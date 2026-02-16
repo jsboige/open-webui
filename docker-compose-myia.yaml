@@ -28,6 +28,8 @@ services:
     image: apache/tika:latest-full
     ports:
       - "9917:9998"
+    networks:
+      - open-webui-shared
     restart: unless-stopped
   pipelines:
     image: ghcr.io/open-webui/pipelines:main
@@ -35,6 +37,8 @@ services:
       - pipelines-data:/app/pipelines
     extra_hosts:
       - host.docker.internal:host-gateway
+    networks:
+      - open-webui-shared
     restart: unless-stopped
   kokoro-tts:
     image: ghcr.io/remsky/kokoro-fastapi-gpu:latest
@@ -49,6 +53,8 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    networks:
+      - open-webui-shared
     restart: unless-stopped
   whisper-stt-adapter:
     build:
@@ -60,6 +66,8 @@ services:
       - 'WHISPER_WEBUI_PASSWORD=goldman'
     extra_hosts:
       - host.docker.internal:host-gateway
+    networks:
+      - open-webui-shared
     restart: unless-stopped
   redis:
     image: docker.io/valkey/valkey:8.0.1-alpine
@@ -86,6 +94,8 @@ services:
         max-file: "1"
     ports:
       - "6351:6379"
+    networks:
+      - open-webui-shared
 volumes:
   open-webui: {}
   pipelines-data: {}

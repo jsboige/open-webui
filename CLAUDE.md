@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **fork/clone of Open WebUI** (v0.7.2) — an extensible, self-hosted AI chat platform. This specific instance is used to run **multiple tenant deployments** (myia, epf, ece, esg, epita, pauwels, epf-genai) via per-tenant docker-compose and env files on the same machine.
+This is a **fork/clone of Open WebUI** (v0.8.2, upgraded from v0.7.2 on 2026-02-16) — an extensible, self-hosted AI chat platform. This specific instance is used to run **multiple tenant deployments** (myia, epf, ece, esg, epita, pauwels, epf-genai) via per-tenant docker-compose and env files on the same machine.
 
 **Stack**: SvelteKit 2 + Svelte 5 (frontend) / FastAPI 0.128 + SQLAlchemy 2 (backend) / Python 3.11+
 
@@ -148,7 +148,7 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Audit embeddings: switched to local `qwen3-4b-awq-embedding` @ `embeddings.myia.io/v1` (dim=2560, batch=16)
 - [x] Switch vector DB: ChromaDB → Qdrant @ `qdrant.myia.io:443` (fix: must include `:443` for HTTPS reverse proxy — qdrant-client adds `:6333` otherwise)
 - [x] Audit web search: SearXNG @ `search.myia.io` — functional
-- [x] Activate functions: MoEA + Mixture of Agents active+global. Artifacts V2 **disabled** (broken `open_webui.apps` import in v0.7.2)
+- [x] Activate functions: MoEA + Mixture of Agents active+global
 - [x] Deploy Kokoro-FastAPI TTS (`ghcr.io/remsky/kokoro-fastapi-gpu:latest`) on port 8880, 67 voices, French=`ff_siwis`
 - [x] Configure TTS to use Kokoro: Engine=OpenAI, Base URL=`http://kokoro-tts:8880/v1`, Model=kokoro, Voice=ff_siwis — tested end-to-end
 - [x] Deploy Whisper WebUI STT adapter sidecar (`whisper-webui-adapter/`) — OpenAI-compatible proxy to Gradio API of `whisper-webui.myia.io`
@@ -158,7 +158,17 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Create test knowledge base "Guide MyIA" — RAG pipeline validated (upload → Tika extraction → embedding → Qdrant → retrieval)
 - [x] Cleaned up unused tool: removed `home_assistant_tool`
 - [x] Install pipelines: rate_limit_filter (10 req/min), conversation_turn_limit_filter (10 turns/user), detoxify_filter, python_code_pipeline
-- [ ] Update/replace Artifacts V2 function with v0.7.2-compatible version
+- [x] Deleted broken `autotoolv2` and `artifacts_v2` functions (crashed `/api/models` in v0.8.2 due to deprecated `open_webui.apps` import)
+
+### Phase 2.5: Docker Image Upgrade v0.7.2 → v0.8.2 (myia)
+- [x] Backup PostgreSQL database (`backups/myia_db_backup_20260216.sql`, 120 MB)
+- [x] Pull and deploy `ghcr.io/open-webui/open-webui:cuda` v0.8.2 (Feb 16 2026)
+- [x] 5 Alembic migrations ran: prompt_history, chat_message, access_grant, skill tables + scim column
+- [x] Fix broken functions crashing `/api/models` — deleted `autotoolv2` + `artifacts_v2`
+- [x] Clean model metadata: removed dead `filterIds` references from 4 custom models
+- [x] Add all sidecar services to `open-webui-shared` Docker network (tika, pipelines, kokoro-tts, whisper-stt-adapter, redis)
+- [x] Verified: all config preserved (audio, embedding, connections, channels, KBs, users)
+- [x] New features available: Groups, Analytics, Skills, Database admin, Code Execution
 
 ### Phase 2b: Channels & Collaboration (myia)
 - [x] Channels feature enabled (`features.channels: true` in user permissions)
@@ -178,4 +188,4 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [ ] Evaluate moving some cloud services to local infra (vLLM, embeddings, STT)
 - [ ] Compare SOTA cloud models vs local hosting cost/performance
 - [ ] Deploy embedding service container (vLLM or TEI) for `qwen3-4b-awq-embedding`
-- [ ] **WARNING**: Major upstream Open WebUI release with tricky DB migration — handle with care when syncing
+- [x] ~~WARNING~~: v0.8.2 upgrade completed successfully (2026-02-16) — 5 Alembic migrations, no manual DB intervention
