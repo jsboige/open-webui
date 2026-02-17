@@ -174,9 +174,21 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Channels feature enabled (`features.channels: true` in user permissions)
 - [x] Created channels: `general` (public), `ai-playground` (public)
 - [x] Tested @mention model responses: `<@M:Local.glm-4.7-flash|GLM-4.7-Flash>` — model responds in thread
-- [ ] Create user groups for access control
+- [x] Create user groups: "Equipe MyIA" (full access, 1 admin) + "Utilisateurs" (standard access, 18 users)
 - [x] Evaluated bot framework ([open-webui/bot](https://github.com/open-webui/bot)) — **NOT deploying**: broken v0.7.2 compatibility (event name mismatch), native @mention already works
 - [ ] Set up webhooks for external integrations
+
+### Phase 2c: Knowledge Base Expansion (myia)
+- [x] Created "Bibliographie IA" knowledge base for academic literature
+- [x] Built bulk upload script (`scripts/bulk-kb-upload.py`) — host-side HTTP API client, skip-existing, size filtering
+- [x] Calibrated upload pipeline: 3 test PDFs → 509 vectors, then full batch with 10s delay
+- [x] Uploaded 140 PDFs (777 MB) from `G:/Mon Drive/MyIA/IA/Bibliographie IA/` (recursive)
+- [x] **109,482 vectors** in Qdrant `open-webui_knowledge` collection
+- [x] RAG retrieval verified: 5 domain queries, relevance scores 0.86–0.93
+- [x] Domains covered: ML, Constraint Programming, Game Theory, Probabilistic Methods, Search, Symbolic AI, Trading/Finance
+- [ ] Upload 4 skipped large PDFs (>50 MB) — split or increase reverse proxy limit
+- [ ] Fix 3 HTTP 413 failures (28–43 MB) — increase nginx `client_max_body_size`
+- [ ] Add documentation from `Argumentum/Fallacies/Documentation/` (path to be verified)
 
 ### Phase 3: Deploy to Student Tenants
 - [ ] Export validated config from myia (model filters, connections, functions, tools)
