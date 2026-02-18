@@ -200,7 +200,14 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Source files saved: `scripts/community-functions/` (4 .py files from Fu-Jie/openwebui-extensions)
 - [x] Tested all 4 functions end-to-end on myia (2026-02-18) — all working
 - [x] Fixed MoEA filter bug: was globally active with empty valves, replacing all messages with error — toggled off
-- [ ] Evaluate Priority 2 functions (Sub Agent, YouTube Transcript, Export to Word, Visuals Toolkit, LLM Council)
+- [x] Evaluated Priority 2 functions — installed 4, skipped LLM Council (doesn't exist on openwebui.com)
+- [x] Installed **Export to Word Enhanced** (action, global) — .docx export with native LaTeX equations, Mermaid diagrams (Fu-Jie)
+- [x] Installed **Sub Agent** (tool) — delegates tool-heavy tasks to isolated sub-agents, parallel execution (Skyzi000)
+- [x] Installed **YouTube Transcript Provider** (tool) — fetches YouTube transcripts, default lang changed to `fr,en` (Newnol)
+- [x] Installed **Visuals Toolkit** (tool) — Plotly charts, tables, heatmaps, timelines, flowcharts with ASCII fallback (Cole)
+- [x] Cleaned up duplicate "IA - IA symbolique" KB (empty, deleted via API)
+- [x] Updated install script to support tools (`/api/v1/tools/` endpoint)
+- [ ] Evaluate v0.8.3 update (notification in UI)
 
 ### Phase 3: Deploy to Student Tenants
 - [ ] Export validated config from myia (model filters, connections, functions, tools)

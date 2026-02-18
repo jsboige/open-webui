@@ -2,6 +2,8 @@ x.py
 yarn.lock
 backups/
 *.png
+*.jpeg
+*.jpg
 .DS_Store
 node_modules
 /build

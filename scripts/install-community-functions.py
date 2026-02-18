@@ -22,11 +22,19 @@ import urllib.error
 
 
 # Function definitions: (file_basename, function_id, function_name, function_type)
+# Types: 'filter', 'action' use /api/v1/functions/ endpoint
+#         'tool' uses /api/v1/tools/ endpoint
 FUNCTIONS = [
+    # Priority 1 (already installed)
     ('markdown_normalizer.py', 'markdown_normalizer', 'Markdown Normalizer', 'filter'),
     ('async_context_compression.py', 'async_context_compression', 'Async Context Compression', 'filter'),
     ('flash_card.py', 'flash_card', 'Flash Card', 'action'),
     ('smart_mind_map.py', 'smart_mind_map', 'Smart Mind Map', 'action'),
+    # Priority 2
+    ('export_to_word.py', 'export_to_word', 'Export to Word Enhanced', 'action'),
+    ('sub_agent.py', 'sub_agent', 'Sub Agent', 'tool'),
+    ('youtube_transcript.py', 'youtube_transcript', 'YouTube Transcript Provider', 'tool'),
+    ('visuals_toolkit.py', 'visuals_toolkit', 'Visuals Toolkit', 'tool'),
 ]
 
 FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'community-functions')
@@ -66,6 +74,17 @@ def get_existing_functions(base_url, token):
     return {f['id']: f['name'] for f in functions}
 
 
+def get_existing_tools(base_url, token):
+    """Fetch list of existing tool IDs."""
+    req = urllib.request.Request(
+        f'{base_url}/api/v1/tools/',
+        headers={'Authorization': f'Bearer {token}'}
+    )
+    resp = urllib.request.urlopen(req)
+    tools = json.load(resp)
+    return {t['id']: t['name'] for t in tools}
+
+
 def extract_metadata(source_code):
     """Extract metadata from the docstring at the top of the file."""
     meta = {}
@@ -82,8 +101,15 @@ def extract_metadata(source_code):
     return meta
 
 
-def create_function(base_url, token, func_id, name, content, meta=None):
-    """Create a new function via the API."""
+def _api_endpoint(base_url, func_type, suffix):
+    """Return the correct API endpoint based on function type."""
+    if func_type == 'tool':
+        return f'{base_url}/api/v1/tools/{suffix}'
+    return f'{base_url}/api/v1/functions/{suffix}'
+
+
+def create_function(base_url, token, func_id, name, content, meta=None, func_type='filter'):
+    """Create a new function or tool via the API."""
     payload = {
         'id': func_id,
         'name': name,
@@ -92,7 +118,7 @@ def create_function(base_url, token, func_id, name, content, meta=None):
     }
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
-        f'{base_url}/api/v1/functions/create',
+        _api_endpoint(base_url, func_type, 'create'),
         data=data,
         headers={
             'Authorization': f'Bearer {token}',
@@ -103,8 +129,8 @@ def create_function(base_url, token, func_id, name, content, meta=None):
     return json.load(resp)
 
 
-def update_function(base_url, token, func_id, name, content, meta=None):
-    """Update an existing function via the API."""
+def update_function(base_url, token, func_id, name, content, meta=None, func_type='filter'):
+    """Update an existing function or tool via the API."""
     payload = {
         'name': name,
         'content': content,
@@ -112,7 +138,7 @@ def update_function(base_url, token, func_id, name, content, meta=None):
     }
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
-        f'{base_url}/api/v1/functions/id/{func_id}/update',
+        _api_endpoint(base_url, func_type, f'id/{func_id}/update'),
         data=data,
         headers={
             'Authorization': f'Bearer {token}',
@@ -187,30 +213,32 @@ def main():
     token = authenticate(base_url, email, password)
     print("  OK")
 
-    # Get existing functions
-    print("\n=== Checking existing functions ===")
-    existing = get_existing_functions(base_url, token)
-    print(f"  {len(existing)} functions exist")
+    # Get existing functions and tools
+    print("\n=== Checking existing functions and tools ===")
+    existing_functions = get_existing_functions(base_url, token)
+    existing_tools = get_existing_tools(base_url, token)
+    print(f"  {len(existing_functions)} functions exist, {len(existing_tools)} tools exist")
 
     # Install
-    print("\n=== Installing functions ===")
+    print("\n=== Installing ===")
     results = {}
 
     for func_id, func_name, func_type, source, meta in functions_to_install:
+        existing = existing_tools if func_type == 'tool' else existing_functions
         try:
             if func_id in existing:
                 print(f"\n  [{func_type}] {func_name}: Updating (already exists)...", end=" ", flush=True)
-                result = update_function(base_url, token, func_id, func_name, source, meta)
+                result = update_function(base_url, token, func_id, func_name, source, meta, func_type)
                 print("OK (updated)")
                 results[func_id] = 'updated'
             else:
                 print(f"\n  [{func_type}] {func_name}: Creating...", end=" ", flush=True)
-                result = create_function(base_url, token, func_id, func_name, source, meta)
+                result = create_function(base_url, token, func_id, func_name, source, meta, func_type)
                 print("OK (created)")
                 results[func_id] = 'created'
 
-            # Toggle global if requested
-            if args.make_global:
+            # Toggle global if requested (only for functions, not tools)
+            if args.make_global and func_type != 'tool':
                 print(f"    Enabling globally...", end=" ", flush=True)
                 toggle_function_global(base_url, token, func_id)
                 print("OK")
