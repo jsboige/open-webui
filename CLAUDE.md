@@ -198,7 +198,8 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Installed **Smart Mind Map** (action, global) — interactive mind maps (Markmap.js)
 - [x] Installation script: `scripts/install-community-functions.py` (create/update/toggle)
 - [x] Source files saved: `scripts/community-functions/` (4 .py files from Fu-Jie/openwebui-extensions)
-- [ ] Test all 4 functions end-to-end on myia
+- [x] Tested all 4 functions end-to-end on myia (2026-02-18) — all working
+- [x] Fixed MoEA filter bug: was globally active with empty valves, replacing all messages with error — toggled off
 - [ ] Evaluate Priority 2 functions (Sub Agent, YouTube Transcript, Export to Word, Visuals Toolkit, LLM Council)
 
 ### Phase 3: Deploy to Student Tenants
