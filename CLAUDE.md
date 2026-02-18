@@ -188,7 +188,18 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Domains covered: ML, Constraint Programming, Game Theory, Probabilistic Methods, Search, Symbolic AI, Trading/Finance
 - [ ] Upload 4 skipped large PDFs (>50 MB) — split or increase reverse proxy limit
 - [ ] Fix 3 HTTP 413 failures (28–43 MB) — increase nginx `client_max_body_size`
-- [ ] Add documentation from `Argumentum/Fallacies/Documentation/` (path to be verified)
+- [x] Created 9 thematic KBs from Bibliographie IA subdirectories (script: `scripts/create-thematic-kbs.py`)
+- [x] Created "Argumentation et Esprit Critique" KB — 73 PDFs from `Argumentum/Fallacies/Documentation/` (script: `scripts/bulk-kb-upload.py --recursive`)
+
+### Phase 2d: Community Functions (myia)
+- [x] Installed **Markdown Normalizer** (filter, global) — fixes LaTeX, code blocks, Mermaid, headings, tables
+- [x] Installed **Async Context Compression** (filter, global) — -65% tokens on long conversations
+- [x] Installed **Flash Card** (action, global) — auto-generates study flashcards
+- [x] Installed **Smart Mind Map** (action, global) — interactive mind maps (Markmap.js)
+- [x] Installation script: `scripts/install-community-functions.py` (create/update/toggle)
+- [x] Source files saved: `scripts/community-functions/` (4 .py files from Fu-Jie/openwebui-extensions)
+- [ ] Test all 4 functions end-to-end on myia
+- [ ] Evaluate Priority 2 functions (Sub Agent, YouTube Transcript, Export to Word, Visuals Toolkit, LLM Council)
 
 ### Phase 3: Deploy to Student Tenants
 - [ ] Export validated config from myia (model filters, connections, functions, tools)
