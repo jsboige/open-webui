@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **fork/clone of Open WebUI** (v0.8.2, upgraded from v0.7.2 on 2026-02-16) — an extensible, self-hosted AI chat platform. This specific instance is used to run **multiple tenant deployments** (myia, epf, ece, esg, epita, pauwels, epf-genai) via per-tenant docker-compose and env files on the same machine.
+This is a **fork/clone of Open WebUI** (v0.8.3, upgraded v0.7.2→v0.8.2 on 2026-02-16, then v0.8.2→v0.8.3 on 2026-02-19) — an extensible, self-hosted AI chat platform. This specific instance is used to run **multiple tenant deployments** (myia, epf, ece, esg, epita, pauwels, epf-genai) via per-tenant docker-compose and env files on the same machine.
 
 **Stack**: SvelteKit 2 + Svelte 5 (frontend) / FastAPI 0.128 + SQLAlchemy 2 (backend) / Python 3.11+
 
@@ -207,7 +207,8 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Installed **Visuals Toolkit** (tool) — Plotly charts, tables, heatmaps, timelines, flowcharts with ASCII fallback (Cole)
 - [x] Cleaned up duplicate "IA - IA symbolique" KB (empty, deleted via API)
 - [x] Updated install script to support tools (`/api/v1/tools/` endpoint)
-- [ ] Evaluate v0.8.3 update (notification in UI)
+- [x] Evaluated v0.8.3 — patch release, PostgreSQL fixes, no breaking changes
+- [x] Upgraded v0.8.2 → v0.8.3 (2026-02-19): backup DB, pull image, restart, verify health — all OK
 
 ### Phase 3: Deploy to Student Tenants
 - [ ] Export validated config from myia (model filters, connections, functions, tools)
