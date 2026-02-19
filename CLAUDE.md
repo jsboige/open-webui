@@ -8,9 +8,53 @@ This is a **fork/clone of Open WebUI** (v0.8.3, upgraded v0.7.2→v0.8.2 on 2026
 
 **Stack**: SvelteKit 2 + Svelte 5 (frontend) / FastAPI 0.128 + SQLAlchemy 2 (backend) / Python 3.11+
 
-## Multi-Tenant Container Setup
+## Multi-Tenant Architecture
 
-Each tenant has its own `docker-compose-<tenant>.yaml` and `<tenant>.env` file at the repo root. The pattern for managing any tenant:
+### Infrastructure (shared services)
+
+All tenants share a common infrastructure managed via `docker-compose-infra.yaml` (project `open-webui-infra`):
+
+```bash
+# Manage shared infra (PostgreSQL + Tika + Redis)
+docker compose -p open-webui-infra -f docker-compose-infra.yaml up -d
+docker compose -p open-webui-infra -f docker-compose-infra.yaml down
+docker compose -p open-webui-infra -f docker-compose-infra.yaml logs
+```
+
+| Service | Container | Host Port | Internal Port | Notes |
+|---------|-----------|-----------|---------------|-------|
+| PostgreSQL 16 | `open-webui-postgres` | 5432 | 5432 | Shared DB server, one database per tenant |
+| Tika | `open-webui-infra-tika-1` | 9917 | 9998 | Document extraction for RAG |
+| Redis (Valkey) | `open-webui-infra-redis-1` | 6351 | 6379 | WebSocket pub/sub, DB isolation per tenant |
+
+Redis DB allocation: myia=0, epf=1, epf-genai=2, ece=3, esg=4, epita=5, pauwels=6
+
+**Important**: The PostgreSQL volume uses `external: true` with `name: myia-open-webui_postgres-data` to preserve data. Never change the compose project name without updating volume references.
+
+### Myia sidecars (`docker-compose-myia.yaml`)
+
+Myia hosts additional services shared by all tenants:
+
+| Service | Container | Port | Notes |
+|---------|-----------|------|-------|
+| Pipelines | `myia-open-webui-pipelines-1` | 9099 | Rate limit, turn limit, detoxify, python code |
+| Kokoro TTS | `myia-open-webui-kokoro-tts-1` | 8880 | 67 voices, French=`ff_siwis`, GPU-accelerated |
+| Whisper STT | `myia-open-webui-whisper-stt-adapter-1` | 8787 | OpenAI-compatible proxy to Gradio |
+
+### External services (HTTPS, accessible by all tenants)
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| Qdrant | `https://qdrant.myia.io:443` | MUST use `:443` (client adds `:6333` by default) |
+| Embedding | `https://embeddings.myia.io/v1` | Model: `qwen3-4b-awq-embedding` (dim=2560) |
+| SearXNG | `https://search.myia.io` | Web search engine |
+| SD Forge | `https://turbo.sd-forge.myia.io` | Image generation |
+| vLLM mini | `http://host.docker.internal:5001` | `qwen3-vl-8b-thinking` |
+| vLLM medium | `http://host.docker.internal:5002` | `glm-4.7-flash` |
+
+### Tenant container management
+
+Each tenant has its own `docker-compose-<tenant>.yaml` and `<tenant>.env` file at the repo root. Each compose contains only a single `open-webui` service on the `open-webui-shared` external Docker network.
 
 ```bash
 # Start
@@ -23,13 +67,21 @@ docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-
 docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-<tenant>.yaml pull
 docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-<tenant>.yaml up -d
 
-# Rebuild from source
-docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-<tenant>.yaml up -d --build
+# Force recreate (required after .env changes — `up -d` alone won't detect env changes)
+docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-<tenant>.yaml up -d --force-recreate
 ```
 
-Active tenants: `myia`, `epf`, `epf-genai`, `ece`, `esg`, `epita`, `pauwels`
+### Tenant status (all v0.8.3, all PostgreSQL, 2026-02-20)
 
-The primary tenant is **myia** (port 2090, image tag `cuda`, Redis on 6351, Tika on 9917).
+| Tenant | Port | Users | Models | KBs | Database | Notes |
+|--------|------|-------|--------|-----|----------|-------|
+| myia | 2090 | 19 | 103 | 12 | myia_db | Reference instance + sidecars |
+| epita | 3014 | 30 | 100 | 12 | epita_db | |
+| esg | 3011 | 30 | 94 | 13 | esg_db | 37 spam purged pre-flight |
+| ece | 3012 | 30 | 99 | 12 | ece_db | Upgraded v0.7.2→v0.8.3 |
+| epf-genai | 3013 | 30 | 100 | 12 | epf_genai_db | 9 excess admins downgraded |
+| epf | 3010 | 30 | 97 | 12 | epf_db | Upgraded v0.6.34→v0.8.3 |
+| pauwels | 3016 | 17 | 94 | 13 | pauwels_db | "Formation Pro" instance |
 
 ## Development Commands
 
@@ -99,17 +151,17 @@ make update              # git pull + rebuild + restart
 
 ## Key Environment Variables
 
-| Variable | Purpose | Default |
-|---|---|---|
-| `DATABASE_URL` | SQLAlchemy connection string | `sqlite:///...webui.db` |
-| `OLLAMA_BASE_URL` | Ollama API endpoint | `http://localhost:11434` |
-| `OPENAI_API_KEY` / `OPENAI_API_BASE_URL` | OpenAI-compatible API | — |
-| `WEBUI_SECRET_KEY` | JWT/session secret | auto-generated |
-| `REDIS_URL` / `WEBSOCKET_REDIS_URL` | Redis for sessions/websockets | — |
-| `VECTOR_DB` | Vector DB backend (`chroma`, `qdrant`, etc.) | `chroma` |
-| `STORAGE_TYPE` | File storage (`local`, `s3`, `azure`, `gcs`) | `local` |
-| `ENV` | `dev` / `prod` / `test` | `prod` |
-| `ENABLE_OLLAMA_API` / `ENABLE_OPENAI_API` | Feature toggles | `true` |
+| Variable | Purpose | Default | Our setting |
+|---|---|---|---|
+| `DATABASE_URL` | SQLAlchemy connection string | `sqlite:///...webui.db` | `postgresql://...@postgres:5432/{tenant}_db` |
+| `VECTOR_DB` | Vector DB backend | `chroma` | `qdrant` |
+| `QDRANT_URI` | Qdrant server URL | — | `https://qdrant.myia.io:443` |
+| `WEBSOCKET_REDIS_URL` | Redis for WebSocket pub/sub | — | `redis://redis:6379/{db_number}` |
+| `WEBSOCKET_REDIS_LOCK_TIMEOUT` | Redis lock TTL (seconds) | `60` | `300` (must be > SESSION_POOL_TIMEOUT=120s) |
+| `WEBUI_SECRET_KEY` | JWT/session secret | auto-generated | (auto) |
+| `ENABLE_OLLAMA_API` | Ollama feature toggle | `true` | `false` |
+| `AIOHTTP_CLIENT_TIMEOUT` | HTTP client timeout | `300` | `6000` |
+| `STORAGE_TYPE` | File storage (`local`, `s3`, etc.) | `local` | `local` |
 
 ## Git & Remotes
 
@@ -118,13 +170,42 @@ make update              # git pull + rebuild + restart
 - Upstream is tracked on `main`; local work on `dev`
 - Sync upstream: `git fetch upstream && git rebase upstream/dev && git push origin dev`
 
+## Deployment Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/preflight-cleanup.py` | Delete broken functions, clean model filterIds, purge spam, delete old KBs |
+| `scripts/configure-tenant.py` | Clone all config sections from myia to tenants via API |
+| `scripts/shallow-copy-kbs.py` | Copy KB metadata between PostgreSQL databases (same UUIDs = shared Qdrant vectors) |
+| `scripts/install-community-functions.py` | Install/update community functions and tools (8 total) |
+| `scripts/migrate-sqlite-to-postgres.py` | SQLite→PG migration (runs inside container, SAVEPOINT-based error handling) |
+| `scripts/bulk-kb-upload.py` | Host-side PDF uploader with skip-existing, delay, size filtering |
+| `scripts/create-thematic-kbs.py` | Create thematic KBs from Bibliographie IA subdirectories |
+
+## Knowledge Bases (12 shared across all tenants)
+
+All tenants share the same 12 KBs via shallow copies (same Qdrant collection UUIDs). Files stored in myia's volume, accessed via WSL symlinks in each tenant's uploads directory.
+
+- **Bibliographie IA** (144 files, 109K vectors) — main academic literature collection
+- **Argumentation et Esprit Critique** (69 files) — argumentation and critical thinking
+- **9 thematic KBs**: IA - ML, IA - Game Theory, IA - Search, IA - Symbolic AI, etc.
+- **Guide MyIA** (test KB)
+
+## Community Functions (8 installed on all tenants)
+
+- **Filters** (global): Markdown Normalizer, Async Context Compression
+- **Actions** (global): Flash Card, Smart Mind Map, Export to Word Enhanced
+- **Tools**: Sub Agent, YouTube Transcript Provider, Visuals Toolkit
+
 ## Notes
 
 - The `.env` files at root (myia.env, epf.env, etc.) contain secrets — never commit them. The `.gitignore` blocks `*.env` and allows `*.env.example`
 - Use `tenant.env.example` as template for new tenants
 - The Dockerfile is a multi-stage build: Node.js (frontend) → Python 3.11 slim (backend), exposed on port 8080 internally
 - Build args `USE_CUDA`, `USE_OLLAMA`, `USE_SLIM` control Dockerfile variants
-- Playwright auth credentials for testing are in `.env` at repo root (gitignored): `MYIA_URL`, `MYIA_EMAIL`, `MYIA_PASSWORD`
+- Docker Compose `--env-file` only interpolates into the compose file — variables must also be in the `environment:` section to reach the container
+- Tika image has wget, NOT curl — healthcheck must use `wget --spider -q`
+- Volume naming: volumes are prefixed with project name. Use `external: true` + `name:` to reference existing volumes when changing project names
 
 ## Maintenance Roadmap (instance myia)
 
@@ -225,11 +306,21 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Deployed **epf** (v0.6.34→v0.8.3): SQLite→PG migration (1033 rows, some v0.6 tables absent), config clone, 12 KBs, 8 functions/tools
 - [x] Deployed **pauwels** (Formation Pro): SQLite→PG migration (63 rows), config clone, 12 KBs, 8 functions/tools, renamed to "Formation Pro"
 - [x] Final verification: all 7 tenants on v0.8.3, 94-103 models, 12-13 KBs, 5 functions + 5 tools each
-- [ ] WSL symlinks for KB file access (run `shallow-copy-kbs.py --show-symlinks` in WSL)
-- [ ] Remove orphan standalone `tika` container (stopped, port 9918)
+- [x] WSL symlinks for KB file access — 261 individual file symlinks per tenant (not directory symlinks)
+- [x] Remove orphan standalone `tika` container
 
-### Phase 4: Local Infrastructure (future)
-- [ ] Evaluate moving some cloud services to local infra (vLLM, embeddings, STT)
-- [ ] Compare SOTA cloud models vs local hosting cost/performance
-- [ ] Deploy embedding service container (vLLM or TEI) for `qwen3-4b-awq-embedding`
-- [x] ~~WARNING~~: v0.8.2 upgrade completed successfully (2026-02-16) — 5 Alembic migrations, no manual DB intervention
+### Phase 3.5: Infrastructure Mutualization (COMPLETED - 2026-02-20)
+- [x] Created `docker-compose-infra.yaml` — combined PostgreSQL + Tika + Redis as project `open-webui-infra`
+- [x] Removed Tika containers from all 6 tenant compose files (was duplicated per tenant)
+- [x] Removed Redis containers from all 6 tenant compose files → single shared Redis with DB number isolation
+- [x] Simplified all tenant compose files to single `open-webui` service on `open-webui-shared` network
+- [x] Fixed myia compose: added missing WebSocket env vars (`ENABLE_WEBSOCKET_SUPPORT`, `WEBSOCKET_MANAGER`, `WEBSOCKET_REDIS_URL`)
+- [x] Fixed v0.8.3 Redis lock timeout bug: `WEBSOCKET_REDIS_LOCK_TIMEOUT=300` (was 60s, shorter than SESSION_POOL_TIMEOUT=120s)
+- [x] Removed obsolete per-tenant standalone compose files (`docker-compose-postgres.yaml`, `docker-compose-tika.yaml`, `docker-compose-redis.yaml`)
+
+### Phase 4: Remaining Tasks
+- [ ] Fix IIS reverse proxy: `tika.myia.io` still points to port 9930 (broken) — should be 9917
+- [ ] Upload 4 skipped large PDFs (>50 MB) and fix 3 HTTP 413 failures
+- [ ] Set up webhooks for channel external integrations
+- [ ] sk-agent integration study
+- [ ] Evaluate moving cloud services to local infra (vLLM, embeddings, STT)
