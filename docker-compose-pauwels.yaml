@@ -22,13 +22,6 @@ services:
       - open-webui-shared
       - internal
     restart: unless-stopped
-  tika:
-    image: apache/tika:latest-full
-    ports:
-      - "${TIKA_PORT-9923}:9998"
-    networks:
-      - internal
-    restart: unless-stopped
   redis:
     image: docker.io/valkey/valkey:8.0.1-alpine
     volumes:
