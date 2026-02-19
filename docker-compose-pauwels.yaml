@@ -1,28 +1,33 @@
 services:
   open-webui:
-    build:
-      context: .
-      args:
-        OLLAMA_BASE_URL: '/ollama'
-      dockerfile: Dockerfile
-    image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-main}
+    image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-cuda}
     volumes:
       - \\wsl.localhost\Ubuntu\home\jesse\pauwels\open-webui:/app/backend/data
     ports:
-      -  ${OPEN_WEBUI_PORT-3000}:8080
+      - ${OPEN_WEBUI_PORT-3016}:8080
     environment:
-      - 'OLLAMA_BASE_URL=http://ollama:11434'
       - 'WEBUI_SECRET_KEY='
       - 'WEBUI_NAME=${WEBUI_NAME}'
       - 'VECTOR_DB=${VECTOR_DB}'
+      - 'QDRANT_URI=${QDRANT_URI}'
+      - 'QDRANT_API_KEY=${QDRANT_API_KEY}'
       - 'AIOHTTP_CLIENT_TIMEOUT=${AIOHTTP_CLIENT_TIMEOUT-6000}'
+      - 'DATABASE_URL=${DATABASE_URL}'
+      - 'ENABLE_WEBSOCKET_SUPPORT=${ENABLE_WEBSOCKET_SUPPORT-true}'
+      - 'WEBSOCKET_MANAGER=${WEBSOCKET_MANAGER-redis}'
+      - 'WEBSOCKET_REDIS_URL=${WEBSOCKET_REDIS_URL}'
     extra_hosts:
       - host.docker.internal:host-gateway
+    networks:
+      - open-webui-shared
+      - internal
     restart: unless-stopped
   tika:
     image: apache/tika:latest-full
     ports:
-      - ${TIKA_PORT-9961}:9998      
+      - "${TIKA_PORT-9923}:9998"
+    networks:
+      - internal
     restart: unless-stopped
   redis:
     image: docker.io/valkey/valkey:8.0.1-alpine
@@ -48,7 +53,15 @@ services:
         max-size: "1m"
         max-file: "1"
     ports:
-      - ${REDIS_PORT-6341}:6379
+      - "${REDIS_PORT-6357}:6379"
+    networks:
+      - internal
+
 volumes:
-  open-webui: {}
   redis-data: {}
+
+networks:
+  open-webui-shared:
+    external: true
+  internal:
+    driver: bridge

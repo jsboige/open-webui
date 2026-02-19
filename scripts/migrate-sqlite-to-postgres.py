@@ -54,6 +54,7 @@ BOOL_COLS = {
     "chat": {"archived", "pinned"},
     "folder": {"is_expanded"},
     "function": {"is_active", "is_global"},
+    "prompt": {"is_active"},
     "message": {"is_pinned"},
     "model": {"is_active"},
 }
@@ -161,15 +162,15 @@ def main():
                     row_list[idx] = bool(val)
 
             try:
+                pg_cur.execute("SAVEPOINT row_sp")
                 pg_cur.execute(insert_sql, row_list)
+                pg_cur.execute("RELEASE SAVEPOINT row_sp")
                 migrated += 1
             except Exception as e:
                 err_msg = f"{table}: {str(e)[:150]}"
                 if err_msg not in errors:
                     errors.append(err_msg)
-                pg_conn.rollback()
-                # Re-enable replica mode after rollback
-                pg_cur.execute("SET session_replication_role = 'replica'")
+                pg_cur.execute("ROLLBACK TO SAVEPOINT row_sp")
                 continue
 
         print(f"OK ({migrated}/{row_count})")

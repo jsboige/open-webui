@@ -210,11 +210,23 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Evaluated v0.8.3 — patch release, PostgreSQL fixes, no breaking changes
 - [x] Upgraded v0.8.2 → v0.8.3 (2026-02-19): backup DB, pull image, restart, verify health — all OK
 
-### Phase 3: Deploy to Student Tenants
-- [ ] Export validated config from myia (model filters, connections, functions, tools)
-- [ ] Apply to each tenant: epf, epf-genai, ece, esg, epita, pauwels
-- [ ] Rebuild knowledge bases per tenant as needed
-- [ ] Verify each tenant's API keys and quotas
+### Phase 3: Deploy to Student Tenants (COMPLETED - 2026-02-19)
+- [x] Created `scripts/preflight-cleanup.py` — delete broken functions, clean model filterIds, purge spam, delete old KBs
+- [x] Created `scripts/configure-tenant.py` — clone all config sections (OpenAI connections, embedding, audio, image, RAG) from myia to tenants via API
+- [x] Created `scripts/shallow-copy-kbs.py` — copy KB metadata between PostgreSQL databases (same UUIDs = shared Qdrant vectors)
+- [x] Updated all 6 tenant docker-compose files: dual-network topology (open-webui-shared + internal), PostgreSQL, Qdrant, standardized ports
+- [x] Updated all 6 tenant .env files: removed legacy config, added DATABASE_URL, QDRANT_URI, QDRANT_API_KEY, websocket config
+- [x] Fixed migration script: SAVEPOINT-based error handling (was rolling back entire transaction on single row errors), added prompt boolean column mapping
+- [x] Pre-flight cleanup on all 5 running tenants: broken functions deleted, spam purged, old KBs removed
+- [x] Deployed **epita** (v0.8.3→v0.8.3): SQLite→PG migration (1636 rows), config clone, 12 KBs, 8 functions/tools
+- [x] Deployed **esg** (v0.8.3→v0.8.3): SQLite→PG migration (759 rows), config clone, 12 KBs, 8 functions/tools
+- [x] Deployed **ece** (v0.7.2→v0.8.3): SQLite→PG migration (783 rows, 7 prompts skipped), config clone, 12 KBs, 8 functions/tools
+- [x] Deployed **epf-genai** (v0.7.2→v0.8.3): SQLite→PG migration (641 rows), config clone, 12 KBs, 8 functions/tools, 9 excess admins downgraded
+- [x] Deployed **epf** (v0.6.34→v0.8.3): SQLite→PG migration (1033 rows, some v0.6 tables absent), config clone, 12 KBs, 8 functions/tools
+- [x] Deployed **pauwels** (Formation Pro): SQLite→PG migration (63 rows), config clone, 12 KBs, 8 functions/tools, renamed to "Formation Pro"
+- [x] Final verification: all 7 tenants on v0.8.3, 94-103 models, 12-13 KBs, 5 functions + 5 tools each
+- [ ] WSL symlinks for KB file access (run `shallow-copy-kbs.py --show-symlinks` in WSL)
+- [ ] Remove orphan standalone `tika` container (stopped, port 9918)
 
 ### Phase 4: Local Infrastructure (future)
 - [ ] Evaluate moving some cloud services to local infra (vLLM, embeddings, STT)
