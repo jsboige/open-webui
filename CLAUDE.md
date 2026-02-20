@@ -41,16 +41,28 @@ Myia hosts additional services shared by all tenants:
 | Kokoro TTS | `myia-open-webui-kokoro-tts-1` | 8880 | 67 voices, French=`ff_siwis`, GPU-accelerated |
 | Whisper STT | `myia-open-webui-whisper-stt-adapter-1` | 8787 | OpenAI-compatible proxy to Gradio |
 
-### External services (HTTPS, accessible by all tenants)
+### LAN services (HTTPS via IIS reverse proxy, accessible by all tenants)
 
-| Service | URL | Notes |
-|---------|-----|-------|
-| Qdrant | `https://qdrant.myia.io:443` | MUST use `:443` (client adds `:6333` by default) |
-| Embedding | `https://embeddings.myia.io/v1` | Model: `qwen3-4b-awq-embedding` (dim=2560) |
-| SearXNG | `https://search.myia.io` | Web search engine |
-| SD Forge | `https://turbo.sd-forge.myia.io` | Image generation |
-| vLLM mini | `http://host.docker.internal:5001` | `qwen3-vl-8b-thinking` |
-| vLLM medium | `http://host.docker.internal:5002` | `glm-4.7-flash` |
+All services run on physical LAN machines, exposed via IIS reverse proxies on `*.myia.io` subdomains.
+
+| Service | URL | Machine | Notes |
+|---------|-----|---------|-------|
+| Qdrant | `https://qdrant.myia.io:443` | myia-ai-01 | MUST use `:443` (client adds `:6333` by default) |
+| Embedding | `https://embeddings.myia.io/v1` | **myia-po-2026** (RTX 3080 16GB) | Model: `qwen3-4b-awq-embedding` (dim=2560) |
+| SearXNG | `https://search.myia.io` | myia-ai-01 | Web search engine |
+| SD Forge | `https://turbo.sd-forge.myia.io` | **myia-po-2023** (RTX 3090+3080) | Image generation |
+| Whisper STT | `https://whisper-webui.myia.io` | **myia-po-2023** | Gradio WebUI, proxied by STT adapter |
+| vLLM mini | `http://host.docker.internal:5001` | myia-ai-01 GPU 2 | `zwz-8b` (ZwZ-8B-AWQ-4bit) |
+| vLLM medium | `http://host.docker.internal:5002` | myia-ai-01 GPU 0+1 | `glm-4.7-flash` |
+
+### Machine fleet
+
+| Machine | GPU(s) | VRAM | Role |
+|---------|--------|------|------|
+| **myia-ai-01** | 3× RTX 4090 | 72 GB | OWUI tenants, vLLM, Qdrant, PostgreSQL, Redis, Tika, Pipelines, Kokoro TTS |
+| **myia-po-2023** | RTX 3090 + RTX 3080 | 40 GB | Whisper STT, SD Forge |
+| **myia-po-2026** | RTX 3080 | 16 GB | Embedding service |
+| **myia-po-2025** | RTX 3080 | 16 GB | Coming soon — available for new workloads |
 
 ### Tenant container management
 
@@ -326,7 +338,7 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Fix IIS reverse proxy: `tika.myia.io` → port 9917 (web.config updated + Tika container restarted, verified HTTP 200)
 - [x] Set up webhooks for channel external integrations — `general` + `ai-playground` on myia
 - [x] sk-agent integration study — see Phase 5 below
-- [x] Evaluate cloud→local migration feasibility — see Phase 5 below
+- [x] Document distributed infrastructure (machine fleet, GPU allocation) — see Phase 5 below
 
 ### Phase 5: Integration & Future Work
 
@@ -348,22 +360,14 @@ Work in progress — each phase validates on myia first, then deploys to student
 
 **Not yet implemented** — requires designing the bridge (OWUI function wrapping sk-agent's MCP tools).
 
-#### Cloud→Local Migration Feasibility (evaluated 2026-02-20)
+#### Infrastructure Notes (documented 2026-02-20)
 
-**Current GPU allocation** (3× RTX 4090, 24 GB each):
+All services are **already running locally** on LAN machines — the `*.myia.io` HTTPS URLs are IIS reverse proxies, NOT cloud services. See "Machine fleet" and "LAN services" tables above for the full mapping.
+
+**myia-ai-01 GPU allocation** (3× RTX 4090, 24 GB each):
 | GPU | VRAM Used | Assignment |
 |-----|-----------|------------|
-| GPU 0 | 97.8% | vLLM medium (GLM-4.7-Flash, tensor-parallel GPU 0+1) |
-| GPU 1 | 96.5% | vLLM medium (GLM-4.7-Flash, tensor-parallel GPU 0+1) |
-| GPU 2 | 84.2% | vLLM mini (ZwZ-8B) + Kokoro TTS |
+| GPU 0+1 | ~97% each | vLLM medium (GLM-4.7-Flash, tensor-parallel) |
+| GPU 2 | ~84% | vLLM mini (ZwZ-8B) + Kokoro TTS (~3.9 GB free) |
 
-**Service-by-service assessment**:
-| Service | Current | Local? | Constraint |
-|---------|---------|--------|------------|
-| vLLM chat models | Already local (5001/5002) | Done | GPU 0+1+2 near-full |
-| Qdrant | Already local (6333) | Done | 7.5 GB RAM |
-| Embeddings (`embeddings.myia.io`) | Remote | Feasible on CPU | ~3.9 GB free on GPU 2; CPU viable with latency tradeoff |
-| STT (`whisper-webui.myia.io`) | Remote (Gradio) | Needs GPU VRAM | No headroom without stopping a vLLM server |
-| Image Gen (`turbo.sd-forge.myia.io`) | Remote | Not feasible | Flux models need 12-24 GB VRAM |
-
-**Recommendation**: Embedding is the only realistic candidate for local migration (small model, CPU-viable). STT and image gen require freeing GPU VRAM (stop a vLLM server or add a 4th GPU).
+**Available capacity**: myia-po-2025 (RTX 3080 16GB) arriving next week — can host additional models or services.
