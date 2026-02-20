@@ -343,26 +343,46 @@ Work in progress — each phase validates on myia first, then deploys to student
 
 ### Phase 5: Integration & Future Work
 
-#### sk-agent Integration (studied 2026-02-20)
+#### sk-agent Integration (implemented 2026-02-20)
 
 **sk-agent v2.0** (`roo-extensions/mcps/internal/servers/sk-agent/`) is a Semantic Kernel-based MCP server providing:
-- **Agent orchestration**: 11 composable agents (analyst, vision-analyst, researcher, etc.) with shared model pool
+- **Agent orchestration**: 13 composable agents with shared model pool
 - **Multi-agent conversations**: Deep Search, Deep Think, Code Review, Research Debate presets
 - **Persistent vector memory**: per-agent Qdrant collections + embeddings
 - **Autonomous tool use**: SearXNG search, Playwright browser, recursive self-invocation
 
-**Current model pool**: GLM-5 + GLM-4.6V (z.ai cloud), ZwZ-8B + GLM-4.7-Flash (local vLLM)
+**Bidirectional integration (both directions implemented)**:
 
-**Integration (implemented 2026-02-20)**:
+**Direction 1: OWUI consumes sk-agent (MCP Tool Server)**
 
 sk-agent is registered as an **MCP Tool Server** in OWUI (myia) via Streamable HTTP transport:
 - **URL**: `http://host.docker.internal:8100/mcp` (sk-agent runs on host, OWUI in Docker)
 - **Transport**: sk-agent supports dual mode — `stdio` (for Claude/Roo) and `streamable-http` (for OWUI/LAN)
 - **13 tools exposed**: `call_agent`, `run_conversation`, `list_agents`, `list_conversations`, `list_tools`, `end_conversation`, plus deprecated aliases
-- **10 agents available**: analyst, vision-analyst, fast, researcher, synthesizer, critic, optimist, devils-advocate, pragmatist, mediator
+- **13 agents available**: 10 core + 3 OWUI-backed (see Direction 2)
 - **4 conversation presets**: deep-search, deep-think, code-review, research-debate
-- **Models**: GLM-4.7-Flash (local vLLM), Qwen3-VL-8B (local vLLM with vision). Z.ai cloud models (GLM-5, GLM-4.6V) disabled pending API key.
 - **Tested end-to-end**: `list_agents` and `call_agent` work from OWUI chat → MCP → sk-agent → vLLM → response
+
+**Direction 2: sk-agent consumes OWUI custom models**
+
+sk-agent uses OWUI's OpenAI-compatible API (`/openai/chat/completions`) as a model provider, accessing custom models with enriched system prompts:
+- **Auth**: OWUI API key (`sk-...` prefix, enabled via admin config `ENABLE_API_KEYS=true`)
+- **Base URL**: `https://open-webui.myia.io/openai`
+- **3 OWUI custom models** created for sk-agent consumption:
+  - `expert-analyste` (base: GLM-4.7-Flash) — structured French analyst with decomposition methodology
+  - `redacteur-technique` (base: GLM-4.7-Flash) — technical documentation writer
+  - `vision-expert` (base: Qwen3-VL-8B) — image and document analysis specialist
+- **3 OWUI-backed agents** in sk-agent: `owui-analyst`, `owui-writer`, `owui-vision`
+- **Tested end-to-end**: sk-agent → OWUI API → custom model with system prompt → structured French response
+
+**Model pool** (5 models total):
+| Model ID | Provider | Description |
+|----------|----------|-------------|
+| `glm-4.7-flash` | vLLM local (5002) | Fast local text model |
+| `qwen3-vl-8b` | vLLM local (5001) | Fast local vision model |
+| `owui-expert-analyste` | OWUI API | Structured French analyst |
+| `owui-redacteur-technique` | OWUI API | Technical writer |
+| `owui-vision-expert` | OWUI API | Vision analysis |
 
 **Running sk-agent in HTTP mode**:
 ```bash
@@ -374,7 +394,6 @@ python sk_agent.py streamable-http  # Listens on 0.0.0.0:8100
 **Future work**:
 - `skagents.myia.io` IIS reverse proxy for LAN-wide access
 - Dockerize sk-agent as sidecar in `docker-compose-myia.yaml`
-- Direction 2: sk-agent consumes OWUI Pipelines/models as providers
 
 #### Infrastructure Notes (documented 2026-02-20)
 
