@@ -52,8 +52,9 @@ All services run on physical LAN machines, exposed via IIS reverse proxies on `*
 | SearXNG | `https://search.myia.io` | myia-ai-01 | Web search engine |
 | SD Forge | `https://turbo.sd-forge.myia.io` | **myia-po-2023** (RTX 3090+3080) | Image generation |
 | Whisper STT | `https://whisper-webui.myia.io` | **myia-po-2023** | Gradio WebUI, proxied by STT adapter |
-| vLLM mini | `http://host.docker.internal:5001` | myia-ai-01 GPU 2 | `zwz-8b` (ZwZ-8B-AWQ-4bit) |
+| vLLM mini | `http://host.docker.internal:5001` | myia-ai-01 GPU 2 | `qwen3-vl-8b-thinking` |
 | vLLM medium | `http://host.docker.internal:5002` | myia-ai-01 GPU 0+1 | `glm-4.7-flash` |
+| sk-agent MCP | `http://host.docker.internal:8100/mcp` | myia-ai-01 | MCP Tool Server (Streamable HTTP), future: `skagents.myia.io` |
 
 ### Machine fleet
 
@@ -352,13 +353,28 @@ Work in progress — each phase validates on myia first, then deploys to student
 
 **Current model pool**: GLM-5 + GLM-4.6V (z.ai cloud), ZwZ-8B + GLM-4.7-Flash (local vLLM)
 
-**Integration opportunities with Open WebUI**:
-1. **sk-agent as OWUI function/tool**: Expose DeepSearch/DeepThink as OWUI tools callable from chat
-2. **OWUI as model provider**: Add OWUI's Pipelines endpoint to sk-agent's model pool
-3. **Shared knowledge**: sk-agent agents could query OWUI's Qdrant KBs (same Qdrant instance, collection names `open-webui_{kb_uuid}`)
-4. **Channel automation**: sk-agent could post research results to OWUI channels via webhooks
+**Integration (implemented 2026-02-20)**:
 
-**Not yet implemented** — requires designing the bridge (OWUI function wrapping sk-agent's MCP tools).
+sk-agent is registered as an **MCP Tool Server** in OWUI (myia) via Streamable HTTP transport:
+- **URL**: `http://host.docker.internal:8100/mcp` (sk-agent runs on host, OWUI in Docker)
+- **Transport**: sk-agent supports dual mode — `stdio` (for Claude/Roo) and `streamable-http` (for OWUI/LAN)
+- **13 tools exposed**: `call_agent`, `run_conversation`, `list_agents`, `list_conversations`, `list_tools`, `end_conversation`, plus deprecated aliases
+- **10 agents available**: analyst, vision-analyst, fast, researcher, synthesizer, critic, optimist, devils-advocate, pragmatist, mediator
+- **4 conversation presets**: deep-search, deep-think, code-review, research-debate
+- **Models**: GLM-4.7-Flash (local vLLM), Qwen3-VL-8B (local vLLM with vision). Z.ai cloud models (GLM-5, GLM-4.6V) disabled pending API key.
+- **Tested end-to-end**: `list_agents` and `call_agent` work from OWUI chat → MCP → sk-agent → vLLM → response
+
+**Running sk-agent in HTTP mode**:
+```bash
+cd d:\roo-extensions\mcps\internal\servers\sk-agent
+python sk_agent.py streamable-http  # Listens on 0.0.0.0:8100
+# Override port: SK_AGENT_PORT=9100 python sk_agent.py streamable-http
+```
+
+**Future work**:
+- `skagents.myia.io` IIS reverse proxy for LAN-wide access
+- Dockerize sk-agent as sidecar in `docker-compose-myia.yaml`
+- Direction 2: sk-agent consumes OWUI Pipelines/models as providers
 
 #### Infrastructure Notes (documented 2026-02-20)
 
