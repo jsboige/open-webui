@@ -186,9 +186,9 @@ make update              # git pull + rebuild + restart
 
 All tenants share the same 12 KBs via shallow copies (same Qdrant collection UUIDs). Files stored in myia's volume, accessed via WSL symlinks in each tenant's uploads directory.
 
-- **Bibliographie IA** (144 files, 109K vectors) — main academic literature collection
+- **Bibliographie IA** (148 files, 362K vectors) — main academic literature collection
 - **Argumentation et Esprit Critique** (69 files) — argumentation and critical thinking
-- **9 thematic KBs**: IA - ML, IA - Game Theory, IA - Search, IA - Symbolic AI, etc.
+- **9 thematic KBs**: IA - ML, IA - Game Theory, IA - Search, IA - Symbolic AI, IA - Programmation par contraintes, IA - Trading et finance, IA - Méthodes probabilistes, IA - Big Data, IA - Automates
 - **Guide MyIA** (test KB)
 
 ## Community Functions (8 installed on all tenants)
@@ -257,7 +257,7 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Tested @mention model responses: `<@M:Local.glm-4.7-flash|GLM-4.7-Flash>` — model responds in thread
 - [x] Create user groups: "Equipe MyIA" (full access, 1 admin) + "Utilisateurs" (standard access, 18 users)
 - [x] Evaluated bot framework ([open-webui/bot](https://github.com/open-webui/bot)) — **NOT deploying**: broken v0.7.2 compatibility (event name mismatch), native @mention already works
-- [ ] Set up webhooks for external integrations
+- [x] Set up webhooks for external integrations — created on `general` and `ai-playground` channels, tested end-to-end
 
 ### Phase 2c: Knowledge Base Expansion (myia)
 - [x] Created "Bibliographie IA" knowledge base for academic literature
@@ -267,8 +267,9 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] **109,482 vectors** in Qdrant `open-webui_knowledge` collection
 - [x] RAG retrieval verified: 5 domain queries, relevance scores 0.86–0.93
 - [x] Domains covered: ML, Constraint Programming, Game Theory, Probabilistic Methods, Search, Symbolic AI, Trading/Finance
-- [ ] Upload 4 skipped large PDFs (>50 MB) — split or increase reverse proxy limit
-- [ ] Fix 3 HTTP 413 failures (28–43 MB) — increase nginx `client_max_body_size`
+- [x] Uploaded 4 large PDFs (54-86 MB): AIMA 4th Ed, Probabilistic ML, Algorithmic Trading, Principles of Finance
+- [x] Fixed HTTP 413 failures — the 28-44 MB files were already uploaded; added to thematic KBs
+- [x] **362K vectors** in Qdrant `open-webui_knowledge` collection (up from 109K)
 - [x] Created 9 thematic KBs from Bibliographie IA subdirectories (script: `scripts/create-thematic-kbs.py`)
 - [x] Created "Argumentation et Esprit Critique" KB — 73 PDFs from `Argumentum/Fallacies/Documentation/` (script: `scripts/bulk-kb-upload.py --recursive`)
 
@@ -319,8 +320,50 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Removed obsolete per-tenant standalone compose files (`docker-compose-postgres.yaml`, `docker-compose-tika.yaml`, `docker-compose-redis.yaml`)
 
 ### Phase 4: Remaining Tasks
-- [ ] Fix IIS reverse proxy: `tika.myia.io` still points to port 9930 (broken) — should be 9917
-- [ ] Upload 4 skipped large PDFs (>50 MB) and fix 3 HTTP 413 failures
-- [ ] Set up webhooks for channel external integrations
-- [ ] sk-agent integration study
-- [ ] Evaluate moving cloud services to local infra (vLLM, embeddings, STT)
+- [x] Upload 4 large PDFs (>50 MB) — AIMA 4th Ed (79MB), Probabilistic ML (86MB), Algorithmic Trading (54MB), Principles of Finance (61MB)
+- [x] Add medium files (28-44MB) to thematic KBs — Model Based ML, Latent Diffusion, Geometric DL, CP-SAT Primer
+- [x] Create WSL symlinks for new uploads on all 6 tenants (4 files × 6 tenants = 24 symlinks)
+- [x] Fix IIS reverse proxy: `tika.myia.io` → port 9917 (web.config updated + Tika container restarted, verified HTTP 200)
+- [x] Set up webhooks for channel external integrations — `general` + `ai-playground` on myia
+- [x] sk-agent integration study — see Phase 5 below
+- [x] Evaluate cloud→local migration feasibility — see Phase 5 below
+
+### Phase 5: Integration & Future Work
+
+#### sk-agent Integration (studied 2026-02-20)
+
+**sk-agent v2.0** (`roo-extensions/mcps/internal/servers/sk-agent/`) is a Semantic Kernel-based MCP server providing:
+- **Agent orchestration**: 11 composable agents (analyst, vision-analyst, researcher, etc.) with shared model pool
+- **Multi-agent conversations**: Deep Search, Deep Think, Code Review, Research Debate presets
+- **Persistent vector memory**: per-agent Qdrant collections + embeddings
+- **Autonomous tool use**: SearXNG search, Playwright browser, recursive self-invocation
+
+**Current model pool**: GLM-5 + GLM-4.6V (z.ai cloud), ZwZ-8B + GLM-4.7-Flash (local vLLM)
+
+**Integration opportunities with Open WebUI**:
+1. **sk-agent as OWUI function/tool**: Expose DeepSearch/DeepThink as OWUI tools callable from chat
+2. **OWUI as model provider**: Add OWUI's Pipelines endpoint to sk-agent's model pool
+3. **Shared knowledge**: sk-agent agents could query OWUI's Qdrant KBs (same Qdrant instance, collection names `open-webui_{kb_uuid}`)
+4. **Channel automation**: sk-agent could post research results to OWUI channels via webhooks
+
+**Not yet implemented** — requires designing the bridge (OWUI function wrapping sk-agent's MCP tools).
+
+#### Cloud→Local Migration Feasibility (evaluated 2026-02-20)
+
+**Current GPU allocation** (3× RTX 4090, 24 GB each):
+| GPU | VRAM Used | Assignment |
+|-----|-----------|------------|
+| GPU 0 | 97.8% | vLLM medium (GLM-4.7-Flash, tensor-parallel GPU 0+1) |
+| GPU 1 | 96.5% | vLLM medium (GLM-4.7-Flash, tensor-parallel GPU 0+1) |
+| GPU 2 | 84.2% | vLLM mini (ZwZ-8B) + Kokoro TTS |
+
+**Service-by-service assessment**:
+| Service | Current | Local? | Constraint |
+|---------|---------|--------|------------|
+| vLLM chat models | Already local (5001/5002) | Done | GPU 0+1+2 near-full |
+| Qdrant | Already local (6333) | Done | 7.5 GB RAM |
+| Embeddings (`embeddings.myia.io`) | Remote | Feasible on CPU | ~3.9 GB free on GPU 2; CPU viable with latency tradeoff |
+| STT (`whisper-webui.myia.io`) | Remote (Gradio) | Needs GPU VRAM | No headroom without stopping a vLLM server |
+| Image Gen (`turbo.sd-forge.myia.io`) | Remote | Not feasible | Flux models need 12-24 GB VRAM |
+
+**Recommendation**: Embedding is the only realistic candidate for local migration (small model, CPU-viable). STT and image gen require freeing GPU VRAM (stop a vLLM server or add a 4th GPU).
