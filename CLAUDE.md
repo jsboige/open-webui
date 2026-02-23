@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **fork/clone of Open WebUI** (v0.8.3, upgraded v0.7.2→v0.8.2 on 2026-02-16, then v0.8.2→v0.8.3 on 2026-02-19) — an extensible, self-hosted AI chat platform. This specific instance is used to run **multiple tenant deployments** (myia, epf, ece, esg, epita, pauwels, epf-genai) via per-tenant docker-compose and env files on the same machine.
+This is a **fork/clone of Open WebUI** (v0.8.5, upgraded v0.8.3→v0.8.5 on 2026-02-23) — an extensible, self-hosted AI chat platform. This specific instance is used to run **multiple tenant deployments** (myia, epf, ece, esg, epita, pauwels, epf-genai) via per-tenant docker-compose and env files on the same machine.
 
 **Stack**: SvelteKit 2 + Svelte 5 (frontend) / FastAPI 0.128 + SQLAlchemy 2 (backend) / Python 3.11+
 
@@ -40,6 +40,7 @@ Myia hosts additional services shared by all tenants:
 | Pipelines | `myia-open-webui-pipelines-1` | 9099 | Rate limit, turn limit, detoxify, python code |
 | Kokoro TTS | `myia-open-webui-kokoro-tts-1` | 8880 | 67 voices, French=`ff_siwis`, GPU-accelerated |
 | Whisper STT | `myia-open-webui-whisper-stt-adapter-1` | 8787 | OpenAI-compatible proxy to Gradio |
+| sk-agent | `myia-open-webui-sk-agent-1` | 8100 | MCP Tool Server (13 agents), Bearer auth, Dockerized |
 
 ### LAN services (HTTPS via IIS reverse proxy, accessible by all tenants)
 
@@ -54,7 +55,7 @@ All services run on physical LAN machines, exposed via IIS reverse proxies on `*
 | Whisper STT | `https://whisper-webui.myia.io` | **myia-po-2023** | Gradio WebUI, proxied by STT adapter |
 | vLLM mini | `http://host.docker.internal:5001` | myia-ai-01 GPU 2 | `qwen3-vl-8b-thinking` |
 | vLLM medium | `http://host.docker.internal:5002` | myia-ai-01 GPU 0+1 | `glm-4.7-flash` |
-| sk-agent MCP | `http://host.docker.internal:8100/mcp` | myia-ai-01 | MCP Tool Server (Streamable HTTP), future: `skagents.myia.io` |
+| sk-agent MCP | `https://skagents.myia.io/mcp` | myia-ai-01 | MCP Tool Server (Streamable HTTP), Bearer auth, all tenants |
 
 ### Machine fleet
 
@@ -84,7 +85,7 @@ docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-
 docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-<tenant>.yaml up -d --force-recreate
 ```
 
-### Tenant status (all v0.8.3, all PostgreSQL, 2026-02-20)
+### Tenant status (all v0.8.5, all PostgreSQL, 2026-02-23)
 
 | Tenant | Port | Users | Models | KBs | Database | Notes |
 |--------|------|-------|--------|-----|----------|-------|
@@ -188,7 +189,7 @@ make update              # git pull + rebuild + restart
 | Script | Purpose |
 |--------|---------|
 | `scripts/preflight-cleanup.py` | Delete broken functions, clean model filterIds, purge spam, delete old KBs |
-| `scripts/configure-tenant.py` | Clone all config sections from myia to tenants via API |
+| `scripts/configure-tenant.py` | Clone all config sections from myia to tenants via API (6 sections: OpenAI, Embedding, Audio, Image, RAG, Tool Servers) |
 | `scripts/shallow-copy-kbs.py` | Copy KB metadata between PostgreSQL databases (same UUIDs = shared Qdrant vectors) |
 | `scripts/install-community-functions.py` | Install/update community functions and tools (8 total) |
 | `scripts/migrate-sqlite-to-postgres.py` | SQLite→PG migration (runs inside container, SAVEPOINT-based error handling) |
@@ -307,7 +308,7 @@ Work in progress — each phase validates on myia first, then deploys to student
 
 ### Phase 3: Deploy to Student Tenants (COMPLETED - 2026-02-19)
 - [x] Created `scripts/preflight-cleanup.py` — delete broken functions, clean model filterIds, purge spam, delete old KBs
-- [x] Created `scripts/configure-tenant.py` — clone all config sections (OpenAI connections, embedding, audio, image, RAG) from myia to tenants via API
+- [x] Created `scripts/configure-tenant.py` — clone all config sections (OpenAI connections, embedding, audio, image, RAG, tool servers) from myia to tenants via API
 - [x] Created `scripts/shallow-copy-kbs.py` — copy KB metadata between PostgreSQL databases (same UUIDs = shared Qdrant vectors)
 - [x] Updated all 6 tenant docker-compose files: dual-network topology (open-webui-shared + internal), PostgreSQL, Qdrant, standardized ports
 - [x] Updated all 6 tenant .env files: removed legacy config, added DATABASE_URL, QDRANT_URI, QDRANT_API_KEY, websocket config
@@ -319,7 +320,7 @@ Work in progress — each phase validates on myia first, then deploys to student
 - [x] Deployed **epf-genai** (v0.7.2→v0.8.3): SQLite→PG migration (641 rows), config clone, 12 KBs, 8 functions/tools, 9 excess admins downgraded
 - [x] Deployed **epf** (v0.6.34→v0.8.3): SQLite→PG migration (1033 rows, some v0.6 tables absent), config clone, 12 KBs, 8 functions/tools
 - [x] Deployed **pauwels** (Formation Pro): SQLite→PG migration (63 rows), config clone, 12 KBs, 8 functions/tools, renamed to "Formation Pro"
-- [x] Final verification: all 7 tenants on v0.8.3, 94-103 models, 12-13 KBs, 5 functions + 5 tools each
+- [x] Final verification: all 7 tenants on v0.8.5, 94-103 models, 12-13 KBs, 5 functions + 5 tools each
 - [x] WSL symlinks for KB file access — 261 individual file symlinks per tenant (not directory symlinks)
 - [x] Remove orphan standalone `tika` container
 
@@ -355,8 +356,8 @@ Work in progress — each phase validates on myia first, then deploys to student
 
 **Direction 1: OWUI consumes sk-agent (MCP Tool Server)**
 
-sk-agent is registered as an **MCP Tool Server** in OWUI (myia) via Streamable HTTP transport:
-- **URL**: `http://host.docker.internal:8100/mcp` (sk-agent runs on host, OWUI in Docker)
+sk-agent is registered as an **MCP Tool Server** in all 7 OWUI tenants via Streamable HTTP transport:
+- **URL**: `https://skagents.myia.io/mcp` (IIS reverse proxy → Docker sidecar on port 8100)
 - **Transport**: sk-agent supports dual mode — `stdio` (for Claude/Roo) and `streamable-http` (for OWUI/LAN)
 - **13 tools exposed**: `call_agent`, `run_conversation`, `list_agents`, `list_conversations`, `list_tools`, `end_conversation`, plus deprecated aliases
 - **13 agents available**: 10 core + 3 OWUI-backed (see Direction 2)
@@ -391,9 +392,20 @@ python sk_agent.py streamable-http  # Listens on 0.0.0.0:8100
 # Override port: SK_AGENT_PORT=9100 python sk_agent.py streamable-http
 ```
 
-**Future work**:
-- `skagents.myia.io` IIS reverse proxy for LAN-wide access
-- Dockerize sk-agent as sidecar in `docker-compose-myia.yaml`
+**Deployment status** (2026-02-23):
+- [x] Dockerized as sidecar in `docker-compose-myia.yaml` (image `sk-agent:latest`, config volume-mounted)
+- [x] IIS reverse proxy `skagents.myia.io` → localhost:8100 (HTTPS, LAN-accessible, Bearer auth)
+- [x] Deployed to all 7 tenants via `configure-tenant.py` (Tool Servers section)
+- [x] End-to-end tested: direct MCP + OWUI API + Playwright UI — all validated
+
+#### Phase 5.5: Version Upgrade v0.8.3→v0.8.5 + Multi-Tenant sk-agent (COMPLETED - 2026-02-23)
+- [x] Backup PostgreSQL (2.3 GB dump)
+- [x] Pulled `ghcr.io/open-webui/open-webui:cuda` (v0.8.5) — floating tag, no breaking changes, no DB migration
+- [x] Upgraded myia first, then all 6 student tenants with `--force-recreate`
+- [x] Embedding load test: 1/4/8/16 concurrent → ~12-13s constant, no degradation (no `EMBEDDING_CONCURRENCY_LIMIT` needed)
+- [x] Added Tool Servers section to `configure-tenant.py` (6th section)
+- [x] Deployed sk-agent MCP config to all 6 student tenants via API
+- [x] All 7 tenants verified: v0.8.5, health OK, KBs intact, sk-agent connected
 
 #### Infrastructure Notes (documented 2026-02-20)
 
