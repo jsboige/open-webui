@@ -2,7 +2,7 @@
 """
 Configure tenant instances by cloning settings from the myia reference instance.
 
-Clones: OpenAI connections, embedding, audio (TTS+STT), image gen, RAG & web search.
+Clones: OpenAI connections, embedding, audio (TTS+STT), image gen, RAG & web search, tool servers (MCP).
 
 Usage:
   python scripts/configure-tenant.py [--dry-run] [--tenants ece epf ...]
@@ -37,6 +37,7 @@ CONFIG_SECTIONS = [
     ('Audio',              '/api/v1/audio/config',          '/api/v1/audio/config/update'),
     ('Image Generation',   '/api/v1/images/config',         '/api/v1/images/config/update'),
     ('RAG & Web Search',   '/api/v1/retrieval/config',      '/api/v1/retrieval/config/update'),
+    ('Tool Servers',       '/api/v1/configs/tool_servers',  '/api/v1/configs/tool_servers'),
 ]
 
 
