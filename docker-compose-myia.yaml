@@ -66,6 +66,20 @@ services:
     networks:
       - open-webui-shared
     restart: unless-stopped
+  sk-agent:
+    image: sk-agent:latest
+    ports:
+      - "8100:8100"
+    environment:
+      - 'SK_AGENT_API_KEY=${SK_AGENT_API_KEY}'
+      - 'SK_AGENT_CONFIG=/app/sk_agent_config.json'
+    volumes:
+      - d:/roo-extensions/mcps/internal/servers/sk-agent/sk_agent_config.json:/app/sk_agent_config.json:ro
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks:
+      - open-webui-shared
+    restart: unless-stopped
 
 volumes:
   open-webui: {}
