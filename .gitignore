@@ -1,6 +1,7 @@
 x.py
 yarn.lock
 backups/
+.claude/
 *.png
 *.jpeg
 *.jpg

@@ -4,98 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **fork/clone of Open WebUI** (v0.8.5, upgraded v0.8.3→v0.8.5 on 2026-02-23) — an extensible, self-hosted AI chat platform. This specific instance is used to run **multiple tenant deployments** (myia, epf, ece, esg, epita, pauwels, epf-genai) via per-tenant docker-compose and env files on the same machine.
+This is a **fork/clone of Open WebUI** (v0.8.5) — an extensible, self-hosted AI chat platform. This instance runs **multiple tenant deployments** via per-tenant docker-compose and env files.
 
 **Stack**: SvelteKit 2 + Svelte 5 (frontend) / FastAPI 0.128 + SQLAlchemy 2 (backend) / Python 3.11+
 
-## Multi-Tenant Architecture
-
-### Infrastructure (shared services)
-
-All tenants share a common infrastructure managed via `docker-compose-infra.yaml` (project `open-webui-infra`):
-
-```bash
-# Manage shared infra (PostgreSQL + Tika + Redis)
-docker compose -p open-webui-infra -f docker-compose-infra.yaml up -d
-docker compose -p open-webui-infra -f docker-compose-infra.yaml down
-docker compose -p open-webui-infra -f docker-compose-infra.yaml logs
-```
-
-| Service | Container | Host Port | Internal Port | Notes |
-|---------|-----------|-----------|---------------|-------|
-| PostgreSQL 16 | `open-webui-postgres` | 5432 | 5432 | Shared DB server, one database per tenant |
-| Tika | `open-webui-infra-tika-1` | 9917 | 9998 | Document extraction for RAG |
-| Redis (Valkey) | `open-webui-infra-redis-1` | 6351 | 6379 | WebSocket pub/sub, DB isolation per tenant |
-
-Redis DB allocation: myia=0, epf=1, epf-genai=2, ece=3, esg=4, epita=5, pauwels=6
-
-**Important**: The PostgreSQL volume uses `external: true` with `name: myia-open-webui_postgres-data` to preserve data. Never change the compose project name without updating volume references.
-
-### Myia sidecars (`docker-compose-myia.yaml`)
-
-Myia hosts additional services shared by all tenants:
-
-| Service | Container | Port | Notes |
-|---------|-----------|------|-------|
-| Pipelines | `myia-open-webui-pipelines-1` | 9099 | Rate limit, turn limit, detoxify, python code |
-| Kokoro TTS | `myia-open-webui-kokoro-tts-1` | 8880 | 67 voices, French=`ff_siwis`, GPU-accelerated |
-| Whisper STT | `myia-open-webui-whisper-stt-adapter-1` | 8787 | OpenAI-compatible proxy to Gradio |
-| sk-agent | `myia-open-webui-sk-agent-1` | 8100 | MCP Tool Server (13 agents), Bearer auth, Dockerized |
-
-### LAN services (HTTPS via IIS reverse proxy, accessible by all tenants)
-
-All services run on physical LAN machines, exposed via IIS reverse proxies on `*.myia.io` subdomains.
-
-| Service | URL | Machine | Notes |
-|---------|-----|---------|-------|
-| Qdrant | `https://qdrant.myia.io:443` | myia-ai-01 | MUST use `:443` (client adds `:6333` by default) |
-| Embedding | `https://embeddings.myia.io/v1` | **myia-po-2026** (RTX 3080 16GB) | Model: `qwen3-4b-awq-embedding` (dim=2560) |
-| SearXNG | `https://search.myia.io` | myia-ai-01 | Web search engine |
-| SD Forge | `https://turbo.sd-forge.myia.io` | **myia-po-2023** (RTX 3090+3080) | Image generation |
-| Whisper STT | `https://whisper-webui.myia.io` | **myia-po-2023** | Gradio WebUI, proxied by STT adapter |
-| vLLM mini | `http://host.docker.internal:5001` | myia-ai-01 GPU 2 | `qwen3-vl-8b-thinking` |
-| vLLM medium | `http://host.docker.internal:5002` | myia-ai-01 GPU 0+1 | `glm-4.7-flash` |
-| sk-agent MCP | `https://skagents.myia.io/mcp` | myia-ai-01 | MCP Tool Server (Streamable HTTP), Bearer auth, all tenants |
-
-### Machine fleet
-
-| Machine | GPU(s) | VRAM | Role |
-|---------|--------|------|------|
-| **myia-ai-01** | 3× RTX 4090 | 72 GB | OWUI tenants, vLLM, Qdrant, PostgreSQL, Redis, Tika, Pipelines, Kokoro TTS |
-| **myia-po-2023** | RTX 3090 + RTX 3080 | 40 GB | Whisper STT, SD Forge |
-| **myia-po-2026** | RTX 3080 | 16 GB | Embedding service |
-| **myia-po-2025** | RTX 3080 | 16 GB | Coming soon — available for new workloads |
-
-### Tenant container management
-
-Each tenant has its own `docker-compose-<tenant>.yaml` and `<tenant>.env` file at the repo root. Each compose contains only a single `open-webui` service on the `open-webui-shared` external Docker network.
-
-```bash
-# Start
-docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-<tenant>.yaml up -d
-
-# Stop
-docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-<tenant>.yaml down
-
-# Update (pull upstream image, restart)
-docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-<tenant>.yaml pull
-docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-<tenant>.yaml up -d
-
-# Force recreate (required after .env changes — `up -d` alone won't detect env changes)
-docker compose -p <tenant>-open-webui --env-file <tenant>.env -f docker-compose-<tenant>.yaml up -d --force-recreate
-```
-
-### Tenant status (all v0.8.5, all PostgreSQL, 2026-02-23)
-
-| Tenant | Port | Users | Models | KBs | Database | Notes |
-|--------|------|-------|--------|-----|----------|-------|
-| myia | 2090 | 19 | 103 | 12 | myia_db | Reference instance + sidecars |
-| epita | 3014 | 30 | 100 | 12 | epita_db | |
-| esg | 3011 | 30 | 94 | 13 | esg_db | 37 spam purged pre-flight |
-| ece | 3012 | 30 | 99 | 12 | ece_db | Upgraded v0.7.2→v0.8.3 |
-| epf-genai | 3013 | 30 | 100 | 12 | epf_genai_db | 9 excess admins downgraded |
-| epf | 3010 | 30 | 97 | 12 | epf_db | Upgraded v0.6.34→v0.8.3 |
-| pauwels | 3016 | 17 | 94 | 13 | pauwels_db | "Formation Pro" instance |
+> **Deployment details** (infrastructure, tenants, services, machine fleet, maintenance roadmap) are in `.claude/DEPLOYMENT.md` (not committed — local only).
 
 ## Development Commands
 
@@ -165,17 +78,17 @@ make update              # git pull + rebuild + restart
 
 ## Key Environment Variables
 
-| Variable | Purpose | Default | Our setting |
-|---|---|---|---|
-| `DATABASE_URL` | SQLAlchemy connection string | `sqlite:///...webui.db` | `postgresql://...@postgres:5432/{tenant}_db` |
-| `VECTOR_DB` | Vector DB backend | `chroma` | `qdrant` |
-| `QDRANT_URI` | Qdrant server URL | — | `https://qdrant.myia.io:443` |
-| `WEBSOCKET_REDIS_URL` | Redis for WebSocket pub/sub | — | `redis://redis:6379/{db_number}` |
-| `WEBSOCKET_REDIS_LOCK_TIMEOUT` | Redis lock TTL (seconds) | `60` | `300` (must be > SESSION_POOL_TIMEOUT=120s) |
-| `WEBUI_SECRET_KEY` | JWT/session secret | auto-generated | (auto) |
-| `ENABLE_OLLAMA_API` | Ollama feature toggle | `true` | `false` |
-| `AIOHTTP_CLIENT_TIMEOUT` | HTTP client timeout | `300` | `6000` |
-| `STORAGE_TYPE` | File storage (`local`, `s3`, etc.) | `local` | `local` |
+| Variable | Purpose | Default |
+|---|---|---|
+| `DATABASE_URL` | SQLAlchemy connection string | `sqlite:///...webui.db` |
+| `VECTOR_DB` | Vector DB backend | `chroma` |
+| `QDRANT_URI` | Qdrant server URL | — |
+| `WEBSOCKET_REDIS_URL` | Redis for WebSocket pub/sub | — |
+| `WEBSOCKET_REDIS_LOCK_TIMEOUT` | Redis lock TTL (seconds) | `60` |
+| `WEBUI_SECRET_KEY` | JWT/session secret | auto-generated |
+| `ENABLE_OLLAMA_API` | Ollama feature toggle | `true` |
+| `AIOHTTP_CLIENT_TIMEOUT` | HTTP client timeout | `300` |
+| `STORAGE_TYPE` | File storage (`local`, `s3`, etc.) | `local` |
 
 ## Git & Remotes
 
@@ -196,21 +109,6 @@ make update              # git pull + rebuild + restart
 | `scripts/bulk-kb-upload.py` | Host-side PDF uploader with skip-existing, delay, size filtering |
 | `scripts/create-thematic-kbs.py` | Create thematic KBs from Bibliographie IA subdirectories |
 
-## Knowledge Bases (12 shared across all tenants)
-
-All tenants share the same 12 KBs via shallow copies (same Qdrant collection UUIDs). Files stored in myia's volume, accessed via WSL symlinks in each tenant's uploads directory.
-
-- **Bibliographie IA** (148 files, 362K vectors) — main academic literature collection
-- **Argumentation et Esprit Critique** (69 files) — argumentation and critical thinking
-- **9 thematic KBs**: IA - ML, IA - Game Theory, IA - Search, IA - Symbolic AI, IA - Programmation par contraintes, IA - Trading et finance, IA - Méthodes probabilistes, IA - Big Data, IA - Automates
-- **Guide MyIA** (test KB)
-
-## Community Functions (8 installed on all tenants)
-
-- **Filters** (global): Markdown Normalizer, Async Context Compression
-- **Actions** (global): Flash Card, Smart Mind Map, Export to Word Enhanced
-- **Tools**: Sub Agent, YouTube Transcript Provider, Visuals Toolkit
-
 ## Notes
 
 - The `.env` files at root (myia.env, epf.env, etc.) contain secrets — never commit them. The `.gitignore` blocks `*.env` and allows `*.env.example`
@@ -220,201 +118,3 @@ All tenants share the same 12 KBs via shallow copies (same Qdrant collection UUI
 - Docker Compose `--env-file` only interpolates into the compose file — variables must also be in the `environment:` section to reach the container
 - Tika image has wget, NOT curl — healthcheck must use `wget --spider -q`
 - Volume naming: volumes are prefixed with project name. Use `external: true` + `name:` to reference existing volumes when changing project names
-
-## Maintenance Roadmap (instance myia)
-
-Work in progress — each phase validates on myia first, then deploys to student tenants.
-
-### Phase 1: API Connections & Model Cleanup (myia)
-- [x] Audit all 12 OpenAI-compatible connections (OpenAI, OpenRouter, Groq, DeepSeek, MistralAI, GoogleDirect, Local/vLLM, Pipelines)
-- [x] Curated OpenRouter filter: 42 models across 10 providers (Anthropic, OpenAI, Google, Mistral, DeepSeek, Z.ai, xAI, Meta, Qwen, NVIDIA) with BYOK keys
-- [x] GoogleDirect disabled — Google models served via OpenRouter BYOK (avoids 429 quota issue)
-- [x] OpenAI filter: 17 chat/reasoning models (removed audio, realtime, image, moderation, sora, transcribe)
-- [x] MistralAI filter: 16 chat/code/reasoning models (removed embed, moderation, voxtral/audio, OCR)
-- [x] Groq filter: 10 chat models (removed whisper, guard, safeguard, orpheus/TTS)
-- [x] Deploy Pipelines container (`ghcr.io/open-webui/pipelines:main`) on internal Docker network
-- [x] Verify vLLM servers: mini=Qwen3-VL-8B-Thinking (5001), medium=GLM-4.7-Flash (5002) — both healthy
-- [x] Install pipelines: rate_limit_filter, conversation_turn_limit_filter, detoxify_filter, python_code_pipeline
-
-### Phase 2: Services & Settings (myia)
-- [x] Fix default locale → `fr-FR` (set in database, takes effect on restart)
-- [x] Audit image generation: SD WebUI Forge (`turbo.sd-forge.myia.io`) — Flux model, working
-- [x] Audit TTS/STT: OpenAI `tts-1`/`whisper-1` — functional
-- [x] Audit embeddings: switched to local `qwen3-4b-awq-embedding` @ `embeddings.myia.io/v1` (dim=2560, batch=16)
-- [x] Switch vector DB: ChromaDB → Qdrant @ `qdrant.myia.io:443` (fix: must include `:443` for HTTPS reverse proxy — qdrant-client adds `:6333` otherwise)
-- [x] Audit web search: SearXNG @ `search.myia.io` — functional
-- [x] Activate functions: MoEA + Mixture of Agents active+global
-- [x] Deploy Kokoro-FastAPI TTS (`ghcr.io/remsky/kokoro-fastapi-gpu:latest`) on port 8880, 67 voices, French=`ff_siwis`
-- [x] Configure TTS to use Kokoro: Engine=OpenAI, Base URL=`http://kokoro-tts:8880/v1`, Model=kokoro, Voice=ff_siwis — tested end-to-end
-- [x] Deploy Whisper WebUI STT adapter sidecar (`whisper-webui-adapter/`) — OpenAI-compatible proxy to Gradio API of `whisper-webui.myia.io`
-- [x] Configure STT to use adapter: Engine=OpenAI, Base URL=`http://whisper-stt-adapter:8787/v1` — tested end-to-end ("Bonjour, ceci est un test.")
-- [x] Verify embedding service is running (confirmed functional)
-- [x] Fix Qdrant URI: must be `https://qdrant.myia.io:443` (qdrant-client defaults to port 6333 when not specified)
-- [x] Create test knowledge base "Guide MyIA" — RAG pipeline validated (upload → Tika extraction → embedding → Qdrant → retrieval)
-- [x] Cleaned up unused tool: removed `home_assistant_tool`
-- [x] Install pipelines: rate_limit_filter (10 req/min), conversation_turn_limit_filter (10 turns/user), detoxify_filter, python_code_pipeline
-- [x] Deleted broken `autotoolv2` and `artifacts_v2` functions (crashed `/api/models` in v0.8.2 due to deprecated `open_webui.apps` import)
-
-### Phase 2.5: Docker Image Upgrade v0.7.2 → v0.8.2 (myia)
-- [x] Backup PostgreSQL database (`backups/myia_db_backup_20260216.sql`, 120 MB)
-- [x] Pull and deploy `ghcr.io/open-webui/open-webui:cuda` v0.8.2 (Feb 16 2026)
-- [x] 5 Alembic migrations ran: prompt_history, chat_message, access_grant, skill tables + scim column
-- [x] Fix broken functions crashing `/api/models` — deleted `autotoolv2` + `artifacts_v2`
-- [x] Clean model metadata: removed dead `filterIds` references from 4 custom models
-- [x] Add all sidecar services to `open-webui-shared` Docker network (tika, pipelines, kokoro-tts, whisper-stt-adapter, redis)
-- [x] Verified: all config preserved (audio, embedding, connections, channels, KBs, users)
-- [x] New features available: Groups, Analytics, Skills, Database admin, Code Execution
-
-### Phase 2b: Channels & Collaboration (myia)
-- [x] Channels feature enabled (`features.channels: true` in user permissions)
-- [x] Created channels: `general` (public), `ai-playground` (public)
-- [x] Tested @mention model responses: `<@M:Local.glm-4.7-flash|GLM-4.7-Flash>` — model responds in thread
-- [x] Create user groups: "Equipe MyIA" (full access, 1 admin) + "Utilisateurs" (standard access, 18 users)
-- [x] Evaluated bot framework ([open-webui/bot](https://github.com/open-webui/bot)) — **NOT deploying**: broken v0.7.2 compatibility (event name mismatch), native @mention already works
-- [x] Set up webhooks for external integrations — created on `general` and `ai-playground` channels, tested end-to-end
-
-### Phase 2c: Knowledge Base Expansion (myia)
-- [x] Created "Bibliographie IA" knowledge base for academic literature
-- [x] Built bulk upload script (`scripts/bulk-kb-upload.py`) — host-side HTTP API client, skip-existing, size filtering
-- [x] Calibrated upload pipeline: 3 test PDFs → 509 vectors, then full batch with 10s delay
-- [x] Uploaded 140 PDFs (777 MB) from `G:/Mon Drive/MyIA/IA/Bibliographie IA/` (recursive)
-- [x] **109,482 vectors** in Qdrant `open-webui_knowledge` collection
-- [x] RAG retrieval verified: 5 domain queries, relevance scores 0.86–0.93
-- [x] Domains covered: ML, Constraint Programming, Game Theory, Probabilistic Methods, Search, Symbolic AI, Trading/Finance
-- [x] Uploaded 4 large PDFs (54-86 MB): AIMA 4th Ed, Probabilistic ML, Algorithmic Trading, Principles of Finance
-- [x] Fixed HTTP 413 failures — the 28-44 MB files were already uploaded; added to thematic KBs
-- [x] **362K vectors** in Qdrant `open-webui_knowledge` collection (up from 109K)
-- [x] Created 9 thematic KBs from Bibliographie IA subdirectories (script: `scripts/create-thematic-kbs.py`)
-- [x] Created "Argumentation et Esprit Critique" KB — 73 PDFs from `Argumentum/Fallacies/Documentation/` (script: `scripts/bulk-kb-upload.py --recursive`)
-
-### Phase 2d: Community Functions (myia)
-- [x] Installed **Markdown Normalizer** (filter, global) — fixes LaTeX, code blocks, Mermaid, headings, tables
-- [x] Installed **Async Context Compression** (filter, global) — -65% tokens on long conversations
-- [x] Installed **Flash Card** (action, global) — auto-generates study flashcards
-- [x] Installed **Smart Mind Map** (action, global) — interactive mind maps (Markmap.js)
-- [x] Installation script: `scripts/install-community-functions.py` (create/update/toggle)
-- [x] Source files saved: `scripts/community-functions/` (4 .py files from Fu-Jie/openwebui-extensions)
-- [x] Tested all 4 functions end-to-end on myia (2026-02-18) — all working
-- [x] Fixed MoEA filter bug: was globally active with empty valves, replacing all messages with error — toggled off
-- [x] Evaluated Priority 2 functions — installed 4, skipped LLM Council (doesn't exist on openwebui.com)
-- [x] Installed **Export to Word Enhanced** (action, global) — .docx export with native LaTeX equations, Mermaid diagrams (Fu-Jie)
-- [x] Installed **Sub Agent** (tool) — delegates tool-heavy tasks to isolated sub-agents, parallel execution (Skyzi000)
-- [x] Installed **YouTube Transcript Provider** (tool) — fetches YouTube transcripts, default lang changed to `fr,en` (Newnol)
-- [x] Installed **Visuals Toolkit** (tool) — Plotly charts, tables, heatmaps, timelines, flowcharts with ASCII fallback (Cole)
-- [x] Cleaned up duplicate "IA - IA symbolique" KB (empty, deleted via API)
-- [x] Updated install script to support tools (`/api/v1/tools/` endpoint)
-- [x] Evaluated v0.8.3 — patch release, PostgreSQL fixes, no breaking changes
-- [x] Upgraded v0.8.2 → v0.8.3 (2026-02-19): backup DB, pull image, restart, verify health — all OK
-
-### Phase 3: Deploy to Student Tenants (COMPLETED - 2026-02-19)
-- [x] Created `scripts/preflight-cleanup.py` — delete broken functions, clean model filterIds, purge spam, delete old KBs
-- [x] Created `scripts/configure-tenant.py` — clone all config sections (OpenAI connections, embedding, audio, image, RAG, tool servers) from myia to tenants via API
-- [x] Created `scripts/shallow-copy-kbs.py` — copy KB metadata between PostgreSQL databases (same UUIDs = shared Qdrant vectors)
-- [x] Updated all 6 tenant docker-compose files: dual-network topology (open-webui-shared + internal), PostgreSQL, Qdrant, standardized ports
-- [x] Updated all 6 tenant .env files: removed legacy config, added DATABASE_URL, QDRANT_URI, QDRANT_API_KEY, websocket config
-- [x] Fixed migration script: SAVEPOINT-based error handling (was rolling back entire transaction on single row errors), added prompt boolean column mapping
-- [x] Pre-flight cleanup on all 5 running tenants: broken functions deleted, spam purged, old KBs removed
-- [x] Deployed **epita** (v0.8.3→v0.8.3): SQLite→PG migration (1636 rows), config clone, 12 KBs, 8 functions/tools
-- [x] Deployed **esg** (v0.8.3→v0.8.3): SQLite→PG migration (759 rows), config clone, 12 KBs, 8 functions/tools
-- [x] Deployed **ece** (v0.7.2→v0.8.3): SQLite→PG migration (783 rows, 7 prompts skipped), config clone, 12 KBs, 8 functions/tools
-- [x] Deployed **epf-genai** (v0.7.2→v0.8.3): SQLite→PG migration (641 rows), config clone, 12 KBs, 8 functions/tools, 9 excess admins downgraded
-- [x] Deployed **epf** (v0.6.34→v0.8.3): SQLite→PG migration (1033 rows, some v0.6 tables absent), config clone, 12 KBs, 8 functions/tools
-- [x] Deployed **pauwels** (Formation Pro): SQLite→PG migration (63 rows), config clone, 12 KBs, 8 functions/tools, renamed to "Formation Pro"
-- [x] Final verification: all 7 tenants on v0.8.5, 94-103 models, 12-13 KBs, 5 functions + 5 tools each
-- [x] WSL symlinks for KB file access — 261 individual file symlinks per tenant (not directory symlinks)
-- [x] Remove orphan standalone `tika` container
-
-### Phase 3.5: Infrastructure Mutualization (COMPLETED - 2026-02-20)
-- [x] Created `docker-compose-infra.yaml` — combined PostgreSQL + Tika + Redis as project `open-webui-infra`
-- [x] Removed Tika containers from all 6 tenant compose files (was duplicated per tenant)
-- [x] Removed Redis containers from all 6 tenant compose files → single shared Redis with DB number isolation
-- [x] Simplified all tenant compose files to single `open-webui` service on `open-webui-shared` network
-- [x] Fixed myia compose: added missing WebSocket env vars (`ENABLE_WEBSOCKET_SUPPORT`, `WEBSOCKET_MANAGER`, `WEBSOCKET_REDIS_URL`)
-- [x] Fixed v0.8.3 Redis lock timeout bug: `WEBSOCKET_REDIS_LOCK_TIMEOUT=300` (was 60s, shorter than SESSION_POOL_TIMEOUT=120s)
-- [x] Removed obsolete per-tenant standalone compose files (`docker-compose-postgres.yaml`, `docker-compose-tika.yaml`, `docker-compose-redis.yaml`)
-
-### Phase 4: Remaining Tasks
-- [x] Upload 4 large PDFs (>50 MB) — AIMA 4th Ed (79MB), Probabilistic ML (86MB), Algorithmic Trading (54MB), Principles of Finance (61MB)
-- [x] Add medium files (28-44MB) to thematic KBs — Model Based ML, Latent Diffusion, Geometric DL, CP-SAT Primer
-- [x] Create WSL symlinks for new uploads on all 6 tenants (4 files × 6 tenants = 24 symlinks)
-- [x] Fix IIS reverse proxy: `tika.myia.io` → port 9917 (web.config updated + Tika container restarted, verified HTTP 200)
-- [x] Set up webhooks for channel external integrations — `general` + `ai-playground` on myia
-- [x] sk-agent integration study — see Phase 5 below
-- [x] Document distributed infrastructure (machine fleet, GPU allocation) — see Phase 5 below
-
-### Phase 5: Integration & Future Work
-
-#### sk-agent Integration (implemented 2026-02-20)
-
-**sk-agent v2.0** (`roo-extensions/mcps/internal/servers/sk-agent/`) is a Semantic Kernel-based MCP server providing:
-- **Agent orchestration**: 13 composable agents with shared model pool
-- **Multi-agent conversations**: Deep Search, Deep Think, Code Review, Research Debate presets
-- **Persistent vector memory**: per-agent Qdrant collections + embeddings
-- **Autonomous tool use**: SearXNG search, Playwright browser, recursive self-invocation
-
-**Bidirectional integration (both directions implemented)**:
-
-**Direction 1: OWUI consumes sk-agent (MCP Tool Server)**
-
-sk-agent is registered as an **MCP Tool Server** in all 7 OWUI tenants via Streamable HTTP transport:
-- **URL**: `https://skagents.myia.io/mcp` (IIS reverse proxy → Docker sidecar on port 8100)
-- **Transport**: sk-agent supports dual mode — `stdio` (for Claude/Roo) and `streamable-http` (for OWUI/LAN)
-- **13 tools exposed**: `call_agent`, `run_conversation`, `list_agents`, `list_conversations`, `list_tools`, `end_conversation`, plus deprecated aliases
-- **13 agents available**: 10 core + 3 OWUI-backed (see Direction 2)
-- **4 conversation presets**: deep-search, deep-think, code-review, research-debate
-- **Tested end-to-end**: `list_agents` and `call_agent` work from OWUI chat → MCP → sk-agent → vLLM → response
-
-**Direction 2: sk-agent consumes OWUI custom models**
-
-sk-agent uses OWUI's OpenAI-compatible API (`/openai/chat/completions`) as a model provider, accessing custom models with enriched system prompts:
-- **Auth**: OWUI API key (`sk-...` prefix, enabled via admin config `ENABLE_API_KEYS=true`)
-- **Base URL**: `https://open-webui.myia.io/openai`
-- **3 OWUI custom models** created for sk-agent consumption:
-  - `expert-analyste` (base: GLM-4.7-Flash) — structured French analyst with decomposition methodology
-  - `redacteur-technique` (base: GLM-4.7-Flash) — technical documentation writer
-  - `vision-expert` (base: Qwen3-VL-8B) — image and document analysis specialist
-- **3 OWUI-backed agents** in sk-agent: `owui-analyst`, `owui-writer`, `owui-vision`
-- **Tested end-to-end**: sk-agent → OWUI API → custom model with system prompt → structured French response
-
-**Model pool** (5 models total):
-| Model ID | Provider | Description |
-|----------|----------|-------------|
-| `glm-4.7-flash` | vLLM local (5002) | Fast local text model |
-| `qwen3-vl-8b` | vLLM local (5001) | Fast local vision model |
-| `owui-expert-analyste` | OWUI API | Structured French analyst |
-| `owui-redacteur-technique` | OWUI API | Technical writer |
-| `owui-vision-expert` | OWUI API | Vision analysis |
-
-**Running sk-agent in HTTP mode**:
-```bash
-cd d:\roo-extensions\mcps\internal\servers\sk-agent
-python sk_agent.py streamable-http  # Listens on 0.0.0.0:8100
-# Override port: SK_AGENT_PORT=9100 python sk_agent.py streamable-http
-```
-
-**Deployment status** (2026-02-23):
-- [x] Dockerized as sidecar in `docker-compose-myia.yaml` (image `sk-agent:latest`, config volume-mounted)
-- [x] IIS reverse proxy `skagents.myia.io` → localhost:8100 (HTTPS, LAN-accessible, Bearer auth)
-- [x] Deployed to all 7 tenants via `configure-tenant.py` (Tool Servers section)
-- [x] End-to-end tested: direct MCP + OWUI API + Playwright UI — all validated
-
-#### Phase 5.5: Version Upgrade v0.8.3→v0.8.5 + Multi-Tenant sk-agent (COMPLETED - 2026-02-23)
-- [x] Backup PostgreSQL (2.3 GB dump)
-- [x] Pulled `ghcr.io/open-webui/open-webui:cuda` (v0.8.5) — floating tag, no breaking changes, no DB migration
-- [x] Upgraded myia first, then all 6 student tenants with `--force-recreate`
-- [x] Embedding load test: 1/4/8/16 concurrent → ~12-13s constant, no degradation (no `EMBEDDING_CONCURRENCY_LIMIT` needed)
-- [x] Added Tool Servers section to `configure-tenant.py` (6th section)
-- [x] Deployed sk-agent MCP config to all 6 student tenants via API
-- [x] All 7 tenants verified: v0.8.5, health OK, KBs intact, sk-agent connected
-
-#### Infrastructure Notes (documented 2026-02-20)
-
-All services are **already running locally** on LAN machines — the `*.myia.io` HTTPS URLs are IIS reverse proxies, NOT cloud services. See "Machine fleet" and "LAN services" tables above for the full mapping.
-
-**myia-ai-01 GPU allocation** (3× RTX 4090, 24 GB each):
-| GPU | VRAM Used | Assignment |
-|-----|-----------|------------|
-| GPU 0+1 | ~97% each | vLLM medium (GLM-4.7-Flash, tensor-parallel) |
-| GPU 2 | ~84% | vLLM mini (ZwZ-8B) + Kokoro TTS (~3.9 GB free) |
-
-**Available capacity**: myia-po-2025 (RTX 3080 16GB) arriving next week — can host additional models or services.
