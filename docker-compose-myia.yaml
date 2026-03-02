@@ -68,6 +68,7 @@ services:
     restart: unless-stopped
   open-terminal:
     image: ghcr.io/open-webui/open-terminal:latest
+    container_name: open-terminal-myia
     ports:
       - "8000:8000"
     volumes:

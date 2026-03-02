@@ -32,6 +32,8 @@ TENANTS = {
 }
 
 # Config sections to clone: (name, GET path, POST path)
+# NOTE: Terminal Servers excluded from default — each tenant has its own container URL.
+# Use --sections "Terminal Servers" to explicitly clone (will overwrite per-tenant URLs!).
 CONFIG_SECTIONS = [
     ('OpenAI Connections', '/openai/config',                '/openai/config/update'),
     ('Embedding',          '/api/v1/retrieval/embedding',   '/api/v1/retrieval/embedding/update'),
@@ -39,6 +41,10 @@ CONFIG_SECTIONS = [
     ('Image Generation',   '/api/v1/images/config',         '/api/v1/images/config/update'),
     ('RAG & Web Search',   '/api/v1/retrieval/config',      '/api/v1/retrieval/config/update'),
     ('Tool Servers',       '/api/v1/configs/tool_servers',     '/api/v1/configs/tool_servers'),
+]
+
+# Sections not cloned by default (per-tenant config)
+EXTRA_SECTIONS = [
     ('Terminal Servers',   '/api/v1/configs/terminal_servers', '/api/v1/configs/terminal_servers'),
 ]
 
@@ -89,7 +95,8 @@ def authenticate(base_url, email, password):
 def fetch_reference_configs(base_url, token, section_filter=None):
     """Fetch all config sections from the reference instance (myia)."""
     configs = {}
-    for name, get_path, _ in CONFIG_SECTIONS:
+    all_sections = CONFIG_SECTIONS + EXTRA_SECTIONS
+    for name, get_path, _ in all_sections:
         if section_filter and name not in section_filter:
             continue
         print(f"  Fetching {name}...", end=" ", flush=True)
@@ -150,7 +157,8 @@ def process_tenant(tenant_key, env_prefix, description, configs, args):
 
     success = 0
     total = 0
-    for name, _, post_path in CONFIG_SECTIONS:
+    all_sections = CONFIG_SECTIONS + EXTRA_SECTIONS
+    for name, _, post_path in all_sections:
         if name not in configs:
             continue
         total += 1

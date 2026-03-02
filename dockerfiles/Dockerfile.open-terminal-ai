@@ -1,0 +1,26 @@
+# Open Terminal - AI/ML Profile (EPF, EPF-GenAI, EPITA)
+# Based on open-terminal:latest (already includes pandas, numpy, sklearn, etc.)
+# Adds: PyTorch (CPU), transformers, langchain, chromadb, OpenCV
+FROM ghcr.io/open-webui/open-terminal:latest
+
+USER root
+
+# OpenCV system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python ML packages (CPU only, no CUDA)
+RUN pip install --no-cache-dir \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir \
+    transformers \
+    huggingface-hub \
+    langchain \
+    langchain-community \
+    chromadb \
+    opencv-python-headless \
+    sentence-transformers \
+    datasets
+
+USER user

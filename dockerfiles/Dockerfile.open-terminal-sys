@@ -1,0 +1,26 @@
+# Open Terminal - Systems Profile (EPITA, ECE)
+# Based on open-terminal:latest (already includes gcc, g++, make, cmake)
+# Adds: gdb, nmap, networking tools, Rust toolchain
+FROM ghcr.io/open-webui/open-terminal:latest
+
+USER root
+
+# System/debugging/networking tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gdb \
+    valgrind \
+    strace \
+    nmap \
+    net-tools \
+    iproute2 \
+    dnsutils \
+    tcpdump \
+    traceroute \
+    iputils-ping \
+    socat \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust toolchain (as user, minimal install)
+USER user
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal \
+    && echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
