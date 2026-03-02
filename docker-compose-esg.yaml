@@ -23,7 +23,7 @@ services:
       - open-webui-shared
     restart: unless-stopped
   open-terminal:
-    image: ghcr.io/open-webui/open-terminal:latest
+    image: open-terminal-finance:latest
     container_name: open-terminal-esg
     volumes:
       - open-terminal-data:/home/user
