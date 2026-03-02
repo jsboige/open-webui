@@ -1,7 +1,9 @@
 x.py
 yarn.lock
 backups/
-.claude/
+.claude/*
+!.claude/commands/
+!.claude/skills/
 *.png
 *.jpeg
 *.jpg
