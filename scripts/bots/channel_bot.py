@@ -59,7 +59,7 @@ BOT_PASSWORD = os.environ.get("BOT_PASSWORD", os.environ.get("MYIA_PASSWORD", ""
 BOT_NAME = os.environ.get("BOT_NAME", "Assistant MyIA")
 BOT_TRIGGER = os.environ.get("BOT_TRIGGER", "")  # Keyword trigger (empty = respond to all)
 BOT_CHANNELS = os.environ.get("BOT_CHANNELS", "")  # Comma-separated channel names (empty = all)
-BOT_MODEL = os.environ.get("BOT_MODEL", "OpenAI.gpt-4o-mini")
+BOT_MODEL = os.environ.get("BOT_MODEL", "Local.qwen3.5-35b-a3b-fast")
 BOT_KB_COLLECTIONS = os.environ.get(
     "BOT_KB_COLLECTIONS", ""
 )  # Comma-separated KB collection names for RAG
@@ -110,8 +110,10 @@ class OWUIClient:
 
     async def login(self, email: str, password: str) -> bool:
         """Authenticate and store JWT token."""
+        timeout = aiohttp.ClientTimeout(total=300, sock_read=180)
         self.session = aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(ssl=False)
+            connector=aiohttp.TCPConnector(ssl=False),
+            timeout=timeout,
         )
         async with self.session.post(
             f"{self.base_url}/api/v1/auths/signin",
@@ -161,15 +163,15 @@ class OWUIClient:
             return None
 
     async def send_typing(self, sio_client, channel_id: str) -> None:
-        """Send typing indicator via Socket.IO."""
+        """Send typing indicator via Socket.IO (fire-and-forget)."""
         try:
-            await sio_client.emit(
+            asyncio.create_task(sio_client.emit(
                 "events:channel",
                 {
                     "channel_id": channel_id,
                     "data": {"type": "typing", "data": {"typing": True}},
                 },
-            )
+            ))
         except Exception:
             pass  # Non-critical
 
@@ -177,19 +179,29 @@ class OWUIClient:
         self, model: str, messages: list[dict], stream: bool = False
     ) -> str:
         """Call OWUI's OpenAI-compatible chat completion API."""
-        async with self.session.post(
-            f"{self.base_url}/api/chat/completions",
-            headers=self.headers,
-            json={"model": model, "messages": messages, "stream": stream},
-        ) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                choices = data.get("choices", [])
-                if choices:
-                    return choices[0].get("message", {}).get("content", "")
-            else:
-                text = await resp.text()
-                log.error("Chat completion failed: %s - %s", resp.status, text[:200])
+        try:
+            log.debug("Calling chat completion with model %s...", model)
+            async with self.session.post(
+                f"{self.base_url}/api/chat/completions",
+                headers=self.headers,
+                json={"model": model, "messages": messages, "stream": stream},
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    choices = data.get("choices", [])
+                    if choices:
+                        content = choices[0].get("message", {}).get("content", "")
+                        log.debug("Chat completion OK: %d chars", len(content))
+                        return content
+                else:
+                    text = await resp.text()
+                    log.error("Chat completion failed: %s - %s", resp.status, text[:200])
+                return ""
+        except asyncio.TimeoutError:
+            log.error("Chat completion timed out for model %s", model)
+            return ""
+        except Exception:
+            log.exception("Chat completion error")
             return ""
 
     async def query_rag(
@@ -257,7 +269,12 @@ class ChannelBot:
             await self._handle_event(data)
 
     async def _handle_event(self, data: dict):
-        """Route channel events to appropriate handlers."""
+        """Route channel events to appropriate handlers.
+
+        Messages are processed in background tasks to avoid blocking the
+        Socket.IO event loop (which would prevent receiving further events
+        and could cause heartbeat timeouts).
+        """
         event_type = data.get("data", {}).get("type", "")
         event_data = data.get("data", {}).get("data", {})
         channel_id = data.get("channel_id", "")
@@ -288,17 +305,22 @@ class ChannelBot:
 
         log.info("Message from %s in %s: %s", sender_name, channel_id[:8], content[:80])
 
+        # Process in a background task to not block the Socket.IO event loop
+        asyncio.create_task(self._process_message(
+            channel_id=channel_id,
+            message_id=message_id,
+            parent_id=parent_id,
+            content=content,
+            sender_name=sender_name,
+            sender_id=user.get("id", ""),
+            mentions=extract_mentions(content),
+            raw=event_data,
+        ))
+
+    async def _process_message(self, **kwargs):
+        """Wrapper for on_message that catches exceptions."""
         try:
-            await self.on_message(
-                channel_id=channel_id,
-                message_id=message_id,
-                parent_id=parent_id,
-                content=content,
-                sender_name=sender_name,
-                sender_id=user.get("id", ""),
-                mentions=extract_mentions(content),
-                raw=event_data,
-            )
+            await self.on_message(**kwargs)
         except Exception:
             log.exception("Error in on_message handler")
 
@@ -424,8 +446,10 @@ class FAQBot(ChannelBot):
 
         log.info("Answering question from %s: %s", sender_name, clean[:60])
 
-        # Send typing indicator
+        # Send typing indicator (fire-and-forget, skip if it fails)
+        log.info("Sending typing indicator...")
         await self.client.send_typing(self.sio, channel_id)
+        log.info("Typing done")
 
         # Query RAG if KB collections are configured
         rag_context = ""
@@ -458,6 +482,7 @@ class FAQBot(ChannelBot):
                 "Cite les sources si possible."
             )
 
+        log.info("Calling chat completion with model %s...", BOT_MODEL)
         response = await self.client.chat_completion(
             model=BOT_MODEL,
             messages=[
@@ -465,12 +490,19 @@ class FAQBot(ChannelBot):
                 {"role": "user", "content": f"{sender_name}: {clean}"},
             ],
         )
+        log.info("Chat completion returned: %d chars", len(response) if response else 0)
 
         if response:
             # Strip <think>...</think> tags from thinking models
             response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
             reply_parent = parent_id or message_id
-            await self.client.post_message(channel_id, response, parent_id=reply_parent)
+            log.info("Posting reply (%d chars) to channel %s, parent=%s",
+                     len(response), channel_id[:8], reply_parent[:8] if reply_parent else "None")
+            result = await self.client.post_message(channel_id, response, parent_id=reply_parent)
+            if result:
+                log.info("Reply posted successfully: %s", result.get("id", "?")[:8])
+            else:
+                log.warning("Reply post returned None")
 
     @staticmethod
     def _extract_chunks(results) -> list[str]:
