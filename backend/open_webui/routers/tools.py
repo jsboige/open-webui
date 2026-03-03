@@ -36,7 +36,6 @@ from open_webui.utils.tools import get_tool_servers
 from open_webui.config import CACHE_DIR, BYPASS_ADMIN_ACCESS_CONTROL
 from open_webui.constants import ERROR_MESSAGES
 
-
 log = logging.getLogger(__name__)
 
 
@@ -65,24 +64,39 @@ async def get_tools(
     tools = []
 
     # Local Tools
-    for tool in Tools.get_tools(db=db):
-        tool_module = get_tool_module(request, tool.id)
+    for tool in Tools.get_tools(defer_content=True, db=db):
+        tool_module = (
+            request.app.state.TOOLS.get(tool.id)
+            if hasattr(request.app.state, "TOOLS")
+            else None
+        )
         tools.append(
             ToolUserResponse(
                 **{
                     **tool.model_dump(),
-                    "has_user_valves": hasattr(tool_module, "UserValves"),
+                    "has_user_valves": (
+                        hasattr(tool_module, "UserValves") if tool_module else False
+                    ),
                 }
             )
         )
 
     # OpenAPI Tool Servers
+    server_access_grants = {}
     for server in await get_tool_servers(request):
+        connection = request.app.state.config.TOOL_SERVER_CONNECTIONS[
+            server.get("idx", 0)
+        ]
+        server_config = connection.get("config", {})
+
+        server_id = f"server:{server.get('id')}"
+        server_access_grants[server_id] = server_config.get("access_grants", [])
+
         tools.append(
             ToolUserResponse(
                 **{
-                    "id": f"server:{server.get('id')}",
-                    "user_id": f"server:{server.get('id')}",
+                    "id": server_id,
+                    "user_id": server_id,
                     "name": server.get("openapi", {})
                     .get("info", {})
                     .get("title", "Tool Server"),
@@ -91,11 +105,6 @@ async def get_tools(
                         .get("info", {})
                         .get("description", ""),
                     },
-                    "access_control": request.app.state.config.TOOL_SERVER_CONNECTIONS[
-                        server.get("idx", 0)
-                    ]
-                    .get("config", {})
-                    .get("access_control", None),
                     "updated_at": int(time.time()),
                     "created_at": int(time.time()),
                 }
@@ -104,7 +113,9 @@ async def get_tools(
 
     # MCP Tool Servers
     for server in request.app.state.config.TOOL_SERVER_CONNECTIONS:
-        if server.get("type", "openapi") == "mcp":
+        if server.get("type", "openapi") == "mcp" and server.get("config", {}).get(
+            "enable"
+        ):
             server_id = server.get("info", {}).get("id")
             auth_type = server.get("auth_type", "none")
 
@@ -119,20 +130,22 @@ async def get_tools(
                     )
                 )
 
+            server_config = server.get("config", {})
+
+            tool_id = f"server:mcp:{server.get('info', {}).get('id')}"
+            server_access_grants[tool_id] = server_config.get("access_grants", [])
+
             tools.append(
                 ToolUserResponse(
                     **{
-                        "id": f"server:mcp:{server.get('info', {}).get('id')}",
-                        "user_id": f"server:mcp:{server.get('info', {}).get('id')}",
+                        "id": tool_id,
+                        "user_id": tool_id,
                         "name": server.get("info", {}).get("name", "MCP Tool Server"),
                         "meta": {
                             "description": server.get("info", {}).get(
                                 "description", ""
                             ),
                         },
-                        "access_control": server.get("config", {}).get(
-                            "access_control", None
-                        ),
                         "updated_at": int(time.time()),
                         "created_at": int(time.time()),
                         **(
@@ -161,7 +174,7 @@ async def get_tools(
                 has_access(
                     user.id,
                     "read",
-                    getattr(tool, "access_control", None),
+                    server_access_grants.get(str(tool.id), []),
                     user_group_ids,
                     db=db,
                 )
@@ -189,27 +202,40 @@ async def get_tool_list(
     user=Depends(get_verified_user), db: Session = Depends(get_session)
 ):
     if user.role == "admin" and BYPASS_ADMIN_ACCESS_CONTROL:
-        tools = Tools.get_tools(db=db)
+        tools = Tools.get_tools(defer_content=True, db=db)
     else:
-        tools = Tools.get_tools_by_user_id(user.id, "read", db=db)
+        tools = Tools.get_tools_by_user_id(user.id, "read", defer_content=True, db=db)
 
-    return [
-        ToolAccessResponse(
-            **tool.model_dump(),
-            write_access=(
-                (user.role == "admin" and BYPASS_ADMIN_ACCESS_CONTROL)
-                or user.id == tool.user_id
-                or AccessGrants.has_access(
-                    user_id=user.id,
-                    resource_type="tool",
-                    resource_id=tool.id,
-                    permission="write",
-                    db=db,
+    user_group_ids = {
+        group.id for group in Groups.get_groups_by_member_id(user.id, db=db)
+    }
+
+    result = []
+    for tool in tools:
+        has_write = (
+            (user.role == "admin" and BYPASS_ADMIN_ACCESS_CONTROL)
+            or user.id == tool.user_id
+            or any(
+                g.permission == "write"
+                and (
+                    (
+                        g.principal_type == "user"
+                        and (g.principal_id == user.id or g.principal_id == "*")
+                    )
+                    or (
+                        g.principal_type == "group" and g.principal_id in user_group_ids
+                    )
                 )
-            ),
+                for g in tool.access_grants
+            )
         )
-        for tool in tools
-    ]
+        result.append(
+            ToolAccessResponse(
+                **tool.model_dump(),
+                write_access=has_write,
+            )
+        )
+    return result
 
 
 ############################
@@ -521,6 +547,7 @@ class ToolAccessGrantsForm(BaseModel):
 
 @router.post("/id/{id}/access/update", response_model=Optional[ToolModel])
 async def update_tool_access_by_id(
+    request: Request,
     id: str,
     form_data: ToolAccessGrantsForm,
     user=Depends(get_verified_user),
@@ -549,9 +576,15 @@ async def update_tool_access_by_id(
             detail=ERROR_MESSAGES.UNAUTHORIZED,
         )
 
-    AccessGrants.set_access_grants(
-        "tool", id, form_data.access_grants, db=db
+    form_data.access_grants = filter_allowed_access_grants(
+        request.app.state.config.USER_PERMISSIONS,
+        user.id,
+        user.role,
+        form_data.access_grants,
+        "sharing.public_tools",
     )
+
+    AccessGrants.set_access_grants("tool", id, form_data.access_grants, db=db)
 
     return Tools.get_tool_by_id(id, db=db)
 
