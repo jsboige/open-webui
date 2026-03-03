@@ -126,14 +126,15 @@ PERSONA_MIGRATIONS = {
         "old_bases": ["OpenAI.gpt-5", "OpenAI.gpt-5-chat-latest"],
         "new_base": "MistralAI.devstral-small-latest",
     },
-    # Reasoning personas → Claude Sonnet 4.6 ($15/M)
+    # Reasoning personas → Claude Sonnet 4.5 ($15/M)
+    # Note: claude-sonnet-4.6 exists on openrouter.ai but not yet available on OWUI provider
     "dr-claire-lacroix": {
-        "old_bases": ["OpenAI.o1", "OpenRouter.anthropic/claude-sonnet-4"],
-        "new_base": "OpenRouter.anthropic/claude-sonnet-4-6",
+        "old_bases": ["OpenAI.o1", "OpenRouter.anthropic/claude-sonnet-4", "OpenRouter.anthropic/claude-sonnet-4-6"],
+        "new_base": "OpenRouter.anthropic/claude-sonnet-4.5",
     },
     "samantha-r1": {
-        "old_bases": ["OpenAI.o3", "OpenRouter.anthropic/claude-sonnet-4"],
-        "new_base": "OpenRouter.anthropic/claude-sonnet-4-6",
+        "old_bases": ["OpenAI.o3", "OpenRouter.anthropic/claude-sonnet-4", "OpenRouter.anthropic/claude-sonnet-4-6"],
+        "new_base": "OpenRouter.anthropic/claude-sonnet-4.5",
     },
     # Mid-range → MistralAI.mistral-medium-latest ($1.2/M)
     "professeur-psychanalyste": {
@@ -174,6 +175,19 @@ Tu es une universitaire accomplie, une clinicienne expérimentée et une penseus
 # Models to delete (inactive/deprecated)
 # ---------------------------------------------------------------------------
 MODELS_TO_DELETE = ["multi-agent:latest"]
+
+# ---------------------------------------------------------------------------
+# Legacy Ollama params to strip from non-Ollama models
+# These cause HTTP 422 when forwarded to OpenAI/MistralAI/OpenRouter
+# ---------------------------------------------------------------------------
+OLLAMA_ONLY_PARAMS = {
+    "repeat_last_n", "repeat_penalty", "mirostat", "mirostat_eta",
+    "mirostat_tau", "tfs_z", "num_ctx", "num_predict", "num_gpu",
+    "num_thread", "top_k", "stream_response",
+}
+
+# Models that should NOT have Ollama params (migrated away from Ollama)
+MODELS_TO_CLEAN_PARAMS = set(PERSONA_MIGRATIONS.keys())
 
 # Tenants
 TENANTS = {
@@ -281,6 +295,19 @@ def optimize_model(model_data, model_id, dry_run=False):
         if current_system != new_system:
             params["system"] = new_system
             changes.append(f"system prompt: FIXED ({len(new_system)} chars)")
+
+    # 6. Strip legacy Ollama params from migrated models
+    if model_id in MODELS_TO_CLEAN_PARAMS:
+        base = updated.get("base_model_id", model_data.get("base_model_id", ""))
+        # Only strip if not pointing to a Local/Ollama model
+        if not base.startswith("Local.") and not base.startswith("ollama"):
+            removed = []
+            for ollama_param in OLLAMA_ONLY_PARAMS:
+                if ollama_param in params:
+                    del params[ollama_param]
+                    removed.append(ollama_param)
+            if removed:
+                changes.append(f"removed Ollama params: {', '.join(sorted(removed))}")
 
     updated["meta"] = meta
     updated["params"] = params

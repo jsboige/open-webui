@@ -57,8 +57,8 @@
 | codewriter | `OpenAI.gpt-5` | ~$30 | `MistralAI.devstral-small-latest` | $0.3 | **99%** |
 | Emilio | `OpenAI.gpt-5` | ~$30 | `MistralAI.devstral-small-latest` | $0.3 | **99%** |
 | Samantha | `OpenAI.gpt-5.2-chat-latest` | ~$30+ | `MistralAI.mistral-medium-latest` | $1.2 | **96%** |
-| Dr. Claire Lacroix | `OpenAI.o1` | ~$60 | `OpenRouter.anthropic/claude-sonnet-4-6` | $15 | **75%** |
-| Samantha R1 | `OpenAI.o3` | ~$40 | `OpenRouter.anthropic/claude-sonnet-4-6` | $15 | **63%** |
+| Dr. Claire Lacroix | `OpenAI.o1` | ~$60 | `OpenRouter.anthropic/claude-sonnet-4` | $15 | **75%** |
+| Samantha R1 | `OpenAI.o3` | ~$40 | `OpenRouter.anthropic/claude-sonnet-4` | $15 | **63%** |
 
 ### Priority 2: Mid-Range Models
 
@@ -80,7 +80,7 @@
 - Alternative: `MistralAI.mistral-small-latest` for more balanced code+conversation
 
 #### For reasoning personas (Dr. Claire Lacroix, Samantha R1, deep thought):
-**Best option: `OpenRouter.anthropic/claude-sonnet-4-6`**
+**Best option: `OpenRouter.anthropic/claude-sonnet-4`**
 - Pro: Best reasoning quality, structured responses, $15/M
 - Con: Still expensive but 50-75% cheaper than o1/o3
 - Alternative: `MistralAI.mistral-medium-latest` for 92% savings with good reasoning

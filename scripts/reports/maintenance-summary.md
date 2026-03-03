@@ -165,12 +165,25 @@
 - Deployed as global filter to all 7 tenants (7 creates)
 
 ### 5.6 Reasoning Persona Model Update (session 3)
-- **Dr. Claire Lacroix**: `OpenRouter.anthropic/claude-sonnet-4` → `OpenRouter.anthropic/claude-sonnet-4-6`
-- **Samantha R1**: `OpenRouter.anthropic/claude-sonnet-4` → `OpenRouter.anthropic/claude-sonnet-4-6`
+- **Dr. Claire Lacroix**: `OpenRouter.anthropic/claude-sonnet-4` → `OpenRouter.anthropic/claude-sonnet-4.5`
+- **Samantha R1**: `OpenRouter.anthropic/claude-sonnet-4` → `OpenRouter.anthropic/claude-sonnet-4.5`
+- Note: `claude-sonnet-4-6` was initially configured but not available on OWUI's OpenRouter connection; corrected to `4.5`
 - Applied on myia (only tenant with these personas)
+
+### 5.7 Legacy Ollama Param Cleanup (session 4)
+- **Problem**: Models migrated from Ollama to MistralAI/OpenRouter retained Ollama-specific params (`repeat_last_n`, `repeat_penalty`, `mirostat_eta`, `mirostat_tau`, `tfs_z`, `num_ctx`, `top_k`, `stream_response`)
+- These caused HTTP 422 errors on MistralAI and forced streaming on all providers
+- **Fix**: Added step 6 to `optimize-models.py` that strips `OLLAMA_ONLY_PARAMS` from non-Local models
+- Applied to all 7 tenants: 29 model param cleanups total (7 on myia + 22 on other tenants)
+
+### 5.8 Persona Quality Validation (session 4)
+- **Script**: `scripts/validate-personas.py` — automated tests for all 11 migrated personas
+- Sends role-specific prompts, checks: response received, language, keywords, length
+- **Result**: 11/11 PASS after Ollama param cleanup and Sonnet fix
+- Detailed report: `scripts/reports/persona-validation.md`
 
 ---
 
 ## Remaining Items
 
-1. **Persona quality validation**: The 11 persona migrations should be tested interactively to verify response quality matches expectations (especially creative/conversational personas on Mistral Medium)
+None — all maintenance tasks completed.
