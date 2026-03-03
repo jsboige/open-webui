@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-OWUI Channel Bot — Minimal framework for v0.8.7
-Connects to Open WebUI via Socket.IO, listens for channel messages,
-and responds via REST API.
+OWUI Channel Bot — Multi-mode bot framework for v0.8.7
+
+Modes (set via BOT_TYPE env var):
+  echo     — Echo bot (default, for testing)
+  faq      — FAQ bot with RAG knowledge base integration
+  welcome  — Welcome bot for new channel members
 
 Usage:
-    # Set environment variables (or use .env file)
     export WEBUI_URL=https://open-webui.myia.io
     export BOT_EMAIL=bot@myia.org
     export BOT_PASSWORD=...
-
+    export BOT_TYPE=faq
     python channel_bot.py
 
 Architecture:
@@ -22,21 +24,28 @@ Requires: python-socketio[asyncio] aiohttp python-dotenv
 """
 
 import asyncio
+import json
 import logging
 import os
 import re
+import signal
 import sys
 from pathlib import Path
 
 import aiohttp
 import socketio
 
-# Load .env from repo root if available
+# Load .env from repo root or from /config/.env (Docker mount)
 try:
     from dotenv import load_dotenv
-    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-    if env_path.exists():
-        load_dotenv(env_path)
+
+    for env_path in [
+        Path("/config/.env"),
+        Path(__file__).resolve().parent.parent.parent / ".env",
+    ]:
+        if env_path.exists():
+            load_dotenv(env_path)
+            break
 except ImportError:
     pass
 
@@ -47,17 +56,24 @@ BOT_EMAIL = os.environ.get("BOT_EMAIL", os.environ.get("MYIA_EMAIL", ""))
 BOT_PASSWORD = os.environ.get("BOT_PASSWORD", os.environ.get("MYIA_PASSWORD", ""))
 
 # Bot behavior
-BOT_NAME = os.environ.get("BOT_NAME", "Channel Bot")
+BOT_NAME = os.environ.get("BOT_NAME", "Assistant MyIA")
 BOT_TRIGGER = os.environ.get("BOT_TRIGGER", "")  # Keyword trigger (empty = respond to all)
 BOT_CHANNELS = os.environ.get("BOT_CHANNELS", "")  # Comma-separated channel names (empty = all)
+BOT_MODEL = os.environ.get("BOT_MODEL", "OpenAI.gpt-4o-mini")
+BOT_KB_COLLECTIONS = os.environ.get(
+    "BOT_KB_COLLECTIONS", ""
+)  # Comma-separated KB collection names for RAG
+BOT_RAG_TOP_K = int(os.environ.get("BOT_RAG_TOP_K", "5"))
 IGNORE_OWN_MESSAGES = True
-RECONNECT_DELAY = 5  # seconds
+RECONNECT_DELAY = int(os.environ.get("RECONNECT_DELAY", "5"))
+RECONNECT_MAX_DELAY = int(os.environ.get("RECONNECT_MAX_DELAY", "60"))
 
 # Logging
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("channel-bot")
 
@@ -81,6 +97,7 @@ def strip_mentions(content: str) -> str:
 
 # --- OWUI API client ---
 
+
 class OWUIClient:
     """REST API client for Open WebUI."""
 
@@ -88,6 +105,7 @@ class OWUIClient:
         self.base_url = base_url.rstrip("/")
         self.token: str = ""
         self.user_id: str = ""
+        self.user_name: str = ""
         self.session: aiohttp.ClientSession | None = None
 
     async def login(self, email: str, password: str) -> bool:
@@ -103,6 +121,7 @@ class OWUIClient:
                 data = await resp.json()
                 self.token = data.get("token", "")
                 self.user_id = data.get("id", "")
+                self.user_name = data.get("name", "")
                 return True
             text = await resp.text()
             log.error("Login failed: %s - %s", resp.status, text[:200])
@@ -125,7 +144,7 @@ class OWUIClient:
     async def post_message(
         self, channel_id: str, content: str, parent_id: str | None = None
     ) -> dict | None:
-        """Post a message to a channel (or reply to a thread)."""
+        """Post a message to a channel (or reply in a thread)."""
         payload = {"content": content}
         if parent_id:
             payload["parent_id"] = parent_id
@@ -141,6 +160,19 @@ class OWUIClient:
             log.error("Post message failed: %s - %s", resp.status, text[:200])
             return None
 
+    async def send_typing(self, sio_client, channel_id: str) -> None:
+        """Send typing indicator via Socket.IO."""
+        try:
+            await sio_client.emit(
+                "events:channel",
+                {
+                    "channel_id": channel_id,
+                    "data": {"type": "typing", "data": {"typing": True}},
+                },
+            )
+        except Exception:
+            pass  # Non-critical
+
     async def chat_completion(
         self, model: str, messages: list[dict], stream: bool = False
     ) -> str:
@@ -155,22 +187,56 @@ class OWUIClient:
                 choices = data.get("choices", [])
                 if choices:
                     return choices[0].get("message", {}).get("content", "")
+            else:
+                text = await resp.text()
+                log.error("Chat completion failed: %s - %s", resp.status, text[:200])
             return ""
+
+    async def query_rag(
+        self,
+        collection_names: list[str],
+        query: str,
+        top_k: int = 5,
+    ) -> list[dict]:
+        """Query knowledge bases via OWUI RAG API."""
+        async with self.session.post(
+            f"{self.base_url}/api/v1/retrieval/query/collection",
+            headers=self.headers,
+            json={
+                "collection_names": collection_names,
+                "query": query,
+                "k": top_k,
+                "hybrid": True,
+            },
+        ) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                # Response structure: list of {collection_name, documents[{...}]}
+                # or flat list of document dicts depending on version
+                if isinstance(data, list):
+                    return data
+                return data.get("documents", data.get("results", []))
+            else:
+                text = await resp.text()
+                log.error("RAG query failed: %s - %s", resp.status, text[:200])
+                return []
 
     async def close(self):
         if self.session:
             await self.session.close()
 
 
-# --- Bot logic (override this) ---
+# --- Bot base class ---
+
 
 class ChannelBot:
     """Base channel bot. Subclass and override on_message() for custom logic."""
 
     def __init__(self, client: OWUIClient):
         self.client = client
-        self.sio = socketio.AsyncClient(ssl_verify=False)
-        self.allowed_channels: set[str] = set()  # channel IDs to listen on
+        self.sio = socketio.AsyncClient(ssl_verify=False, reconnection=False)
+        self.allowed_channels: set[str] = set()
+        self._running = True
         self._setup_handlers()
 
     def _setup_handlers(self):
@@ -197,24 +263,18 @@ class ChannelBot:
         channel_id = data.get("channel_id", "")
         user = data.get("user", {})
 
-        # Only process message events
         if event_type != "message":
             return
-
-        # Skip if not a dict (malformed event)
         if not isinstance(event_data, dict):
             return
-
-        # Skip own messages to prevent loops
         if IGNORE_OWN_MESSAGES and user.get("id") == self.client.user_id:
             return
 
-        # Skip model responses (meta.model_id present)
+        # Skip model auto-responses (from @mention mechanism)
         meta = event_data.get("meta") or {}
         if meta.get("model_id"):
             return
 
-        # Filter by allowed channels
         if self.allowed_channels and channel_id not in self.allowed_channels:
             return
 
@@ -223,16 +283,10 @@ class ChannelBot:
         parent_id = event_data.get("parent_id")
         sender_name = user.get("name", "unknown")
 
-        # Filter by trigger keyword (if configured)
         if BOT_TRIGGER and BOT_TRIGGER.lower() not in content.lower():
             return
 
-        log.info(
-            "Message from %s in %s: %s",
-            sender_name,
-            channel_id[:8],
-            content[:80],
-        )
+        log.info("Message from %s in %s: %s", sender_name, channel_id[:8], content[:80])
 
         try:
             await self.on_message(
@@ -259,25 +313,42 @@ class ChannelBot:
         mentions: list[dict],
         raw: dict,
     ):
-        """
-        Override this method to implement custom bot logic.
-
-        Default implementation: echo bot (responds with quoted message).
-        """
+        """Override this method. Default: echo bot."""
         clean = strip_mentions(content)
         response = f"> {clean}\n\nMessage received! (echo from {BOT_NAME})"
-        # Reply in thread if it's a thread, otherwise reply to the message
         reply_parent = parent_id or message_id
         await self.client.post_message(channel_id, response, parent_id=reply_parent)
 
+    async def _connect_and_join(self) -> bool:
+        """Connect Socket.IO and join channels. Returns True on success."""
+        try:
+            await self.sio.connect(
+                WEBUI_URL,
+                socketio_path="/ws/socket.io",
+                transports=["websocket"],
+                auth={"token": self.client.token},
+                wait_timeout=10,
+            )
+            response = await self.sio.call(
+                "user-join",
+                {"auth": {"token": self.client.token}},
+                timeout=10,
+            )
+            log.info("Joined as: %s", response)
+            return True
+        except Exception as e:
+            log.error("Connection failed: %s", e)
+            return False
+
     async def start(self):
-        """Connect and start listening."""
-        # Login
+        """Connect and start listening with automatic reconnection."""
         if not await self.client.login(BOT_EMAIL, BOT_PASSWORD):
             log.error("Cannot start bot: login failed")
             return
 
-        log.info("Logged in as %s (user_id=%s)", BOT_EMAIL, self.client.user_id)
+        log.info(
+            "Logged in as %s (%s)", self.client.user_name, self.client.user_id[:8]
+        )
 
         # Resolve allowed channels
         if BOT_CHANNELS:
@@ -286,105 +357,197 @@ class ChannelBot:
             for ch in channels:
                 if ch.get("name", "").lower() in channel_names:
                     self.allowed_channels.add(ch["id"])
-            log.info("Listening on channels: %s", self.allowed_channels)
+            log.info(
+                "Listening on %d channel(s): %s",
+                len(self.allowed_channels),
+                ", ".join(channel_names),
+            )
         else:
             log.info("Listening on ALL channels")
 
-        # Connect Socket.IO
-        await self.sio.connect(
-            WEBUI_URL,
-            socketio_path="/ws/socket.io",
-            transports=["websocket"],
-            auth={"token": self.client.token},
-            wait_timeout=10,
-        )
-
-        # Join channels
-        response = await self.sio.call(
-            "user-join",
-            {"auth": {"token": self.client.token}},
-            timeout=10,
-        )
-        log.info("Joined as: %s", response)
-
-        # Keep alive with reconnection
-        while True:
-            try:
-                await self.sio.sleep(1)
-            except (socketio.exceptions.ConnectionError, Exception) as e:
-                log.warning("Connection lost: %s. Reconnecting in %ds...", e, RECONNECT_DELAY)
-                await asyncio.sleep(RECONNECT_DELAY)
-                try:
-                    await self.sio.connect(
-                        WEBUI_URL,
-                        socketio_path="/ws/socket.io",
-                        transports=["websocket"],
-                        auth={"token": self.client.token},
-                        wait_timeout=10,
-                    )
-                    await self.sio.call(
-                        "user-join",
-                        {"auth": {"token": self.client.token}},
-                        timeout=10,
-                    )
-                    log.info("Reconnected successfully")
-                except Exception as re_err:
-                    log.error("Reconnection failed: %s", re_err)
+        # Connect with exponential backoff reconnection
+        delay = RECONNECT_DELAY
+        while self._running:
+            if await self._connect_and_join():
+                delay = RECONNECT_DELAY  # Reset on success
+                # Keep alive loop
+                while self._running and self.sio.connected:
+                    await asyncio.sleep(1)
+                if not self._running:
+                    break
+                log.warning("Connection lost")
+            log.info("Reconnecting in %ds...", delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, RECONNECT_MAX_DELAY)
 
     async def stop(self):
         """Disconnect and cleanup."""
+        self._running = False
         if self.sio.connected:
             await self.sio.disconnect()
         await self.client.close()
 
 
-# --- Example: FAQ Bot with RAG ---
+# --- FAQ Bot with RAG ---
+
 
 class FAQBot(ChannelBot):
     """
-    FAQ bot that uses OWUI's chat completion API to answer questions.
-    Optionally routes through a model that has KBs attached (e.g., expert-analyste).
+    FAQ bot that answers questions using RAG (knowledge base search)
+    followed by LLM completion for natural-language responses.
     """
 
-    MODEL_ID = os.environ.get("BOT_MODEL", "gpt-4.1-mini")
+    def __init__(self, client: OWUIClient):
+        super().__init__(client)
+        self.kb_collections = [
+            c.strip()
+            for c in BOT_KB_COLLECTIONS.split(",")
+            if c.strip()
+        ]
 
-    async def on_message(self, channel_id, message_id, parent_id, content, sender_name, sender_id, mentions, raw):
+    async def on_message(
+        self, channel_id, message_id, parent_id, content, sender_name, sender_id, mentions, raw
+    ):
         clean = strip_mentions(content)
 
         # Skip very short messages
         if len(clean) < 10:
             return
 
-        # Skip if message ends with ? or contains a question word (basic filter)
-        # Remove this filter to respond to all messages
-        question_indicators = ["?", "comment", "pourquoi", "quand", "quel", "est-ce", "how", "what", "why"]
-        is_question = any(q in clean.lower() for q in question_indicators)
-        if not is_question:
+        # Only respond to questions (contains ? or question words)
+        question_indicators = [
+            "?", "comment", "pourquoi", "quand", "quel", "est-ce",
+            "how", "what", "why", "when", "where", "which", "aide", "help",
+        ]
+        if not any(q in clean.lower() for q in question_indicators):
             return
 
         log.info("Answering question from %s: %s", sender_name, clean[:60])
 
-        # Get AI response
+        # Send typing indicator
+        await self.client.send_typing(self.sio, channel_id)
+
+        # Query RAG if KB collections are configured
+        rag_context = ""
+        if self.kb_collections:
+            try:
+                results = await self.client.query_rag(
+                    collection_names=self.kb_collections,
+                    query=clean,
+                    top_k=BOT_RAG_TOP_K,
+                )
+                if results:
+                    chunks = self._extract_chunks(results)
+                    if chunks:
+                        rag_context = "\n\n---\n\n".join(chunks[:BOT_RAG_TOP_K])
+                        log.info("RAG returned %d relevant chunks", len(chunks))
+            except Exception:
+                log.exception("RAG query failed")
+
+        # Build prompt with RAG context
+        system_prompt = (
+            f"Tu es {BOT_NAME}, un assistant dans un channel de discussion collaboratif. "
+            "Réponds de manière concise et utile en français. "
+            "Si tu ne sais pas, dis-le honnêtement."
+        )
+        if rag_context:
+            system_prompt += (
+                "\n\nVoici des extraits pertinents de la base de connaissances :\n\n"
+                f"{rag_context}\n\n"
+                "Utilise ces extraits pour répondre à la question. "
+                "Cite les sources si possible."
+            )
+
         response = await self.client.chat_completion(
-            model=self.MODEL_ID,
+            model=BOT_MODEL,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        f"Tu es {BOT_NAME}, un assistant dans un channel de discussion. "
-                        "Réponds de manière concise et utile. Si tu ne sais pas, dis-le."
-                    ),
-                },
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"{sender_name}: {clean}"},
             ],
         )
 
         if response:
+            # Strip <think>...</think> tags from thinking models
+            response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
             reply_parent = parent_id or message_id
             await self.client.post_message(channel_id, response, parent_id=reply_parent)
 
+    @staticmethod
+    def _extract_chunks(results) -> list[str]:
+        """Extract text chunks from RAG query results."""
+        chunks = []
+        if isinstance(results, list):
+            for item in results:
+                if isinstance(item, dict):
+                    # Format: {collection_name, documents: [{...}]} or flat {content, ...}
+                    if "documents" in item:
+                        for doc in item["documents"]:
+                            text = doc if isinstance(doc, str) else doc.get("content", doc.get("text", ""))
+                            if text:
+                                chunks.append(str(text)[:1000])
+                    elif "content" in item:
+                        chunks.append(str(item["content"])[:1000])
+                    elif "text" in item:
+                        chunks.append(str(item["text"])[:1000])
+                elif isinstance(item, str):
+                    chunks.append(item[:1000])
+        return chunks
+
+
+# --- Welcome Bot ---
+
+
+class WelcomeBot(ChannelBot):
+    """
+    Welcome bot that greets new users in channels.
+    Responds to first-time messages from users it hasn't seen before.
+    """
+
+    WELCOME_MESSAGE = os.environ.get(
+        "BOT_WELCOME_MESSAGE",
+        (
+            "Bienvenue sur **{channel}**, {user} ! 👋\n\n"
+            "Ce channel est un espace de discussion collaborative. "
+            "N'hésitez pas à poser vos questions — vous pouvez aussi mentionner "
+            "un modèle IA avec @ pour obtenir de l'aide.\n\n"
+            "Bonne discussion !"
+        ),
+    )
+
+    def __init__(self, client: OWUIClient):
+        super().__init__(client)
+        self._seen_users: dict[str, set[str]] = {}  # channel_id -> set of user_ids
+
+    async def on_message(
+        self, channel_id, message_id, parent_id, content, sender_name, sender_id, mentions, raw
+    ):
+        # Only greet in top-level messages (not threads)
+        if parent_id:
+            return
+
+        # Track seen users per channel
+        if channel_id not in self._seen_users:
+            self._seen_users[channel_id] = set()
+
+        if sender_id in self._seen_users[channel_id]:
+            return
+
+        self._seen_users[channel_id].add(sender_id)
+
+        # Get channel name for the welcome message
+        channels = await self.client.get_channels()
+        channel_name = next(
+            (c.get("name", "ce channel") for c in channels if c.get("id") == channel_id),
+            "ce channel",
+        )
+
+        msg = self.WELCOME_MESSAGE.format(channel=channel_name, user=sender_name)
+        await self.client.post_message(channel_id, msg, parent_id=message_id)
+        log.info("Welcomed %s in #%s", sender_name, channel_name)
+
 
 # --- Main ---
+
 
 async def main():
     if not WEBUI_URL or not BOT_EMAIL or not BOT_PASSWORD:
@@ -396,18 +559,26 @@ async def main():
 
     client = OWUIClient(WEBUI_URL)
 
-    # Choose bot type based on env
     bot_type = os.environ.get("BOT_TYPE", "echo").lower()
-    if bot_type == "faq":
-        bot = FAQBot(client)
-    else:
-        bot = ChannelBot(client)
+    bot_classes = {"echo": ChannelBot, "faq": FAQBot, "welcome": WelcomeBot}
+    bot_cls = bot_classes.get(bot_type, ChannelBot)
+    bot = bot_cls(client)
 
     log.info("Starting %s (%s mode) → %s", BOT_NAME, bot_type, WEBUI_URL)
+    if bot_type == "faq" and BOT_KB_COLLECTIONS:
+        log.info("RAG collections: %s (top_k=%d)", BOT_KB_COLLECTIONS, BOT_RAG_TOP_K)
+
+    # Graceful shutdown
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(bot.stop()))
+        except NotImplementedError:
+            pass  # Windows doesn't support add_signal_handler
 
     try:
         await bot.start()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         log.info("Shutting down...")
     finally:
         await bot.stop()
