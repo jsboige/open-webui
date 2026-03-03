@@ -39,6 +39,17 @@ FUNCTIONS = [
 
 FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'community-functions')
 
+# Tenants for multi-tenant deployment
+TENANTS = {
+    "myia": ("MYIA_URL", "MYIA_EMAIL", "MYIA_PASSWORD"),
+    "epf": ("EPF_URL", "EPF_EMAIL", "EPF_PASSWORD"),
+    "epf-genai": ("EPF_GENAI_URL", "EPF_GENAI_EMAIL", "EPF_GENAI_PASSWORD"),
+    "ece": ("ECE_URL", "ECE_EMAIL", "ECE_PASSWORD"),
+    "esg": ("ESG_URL", "ESG_EMAIL", "ESG_PASSWORD"),
+    "epita": ("EPITA_URL", "EPITA_EMAIL", "EPITA_PASSWORD"),
+    "pauwels": ("PAUWELS_URL", "PAUWELS_EMAIL", "PAUWELS_PASSWORD"),
+}
+
 
 def load_env(env_path):
     if not os.path.exists(env_path):
@@ -132,6 +143,7 @@ def create_function(base_url, token, func_id, name, content, meta=None, func_typ
 def update_function(base_url, token, func_id, name, content, meta=None, func_type='filter'):
     """Update an existing function or tool via the API."""
     payload = {
+        'id': func_id,
         'name': name,
         'content': content,
         'meta': meta or {}
@@ -164,6 +176,41 @@ def toggle_function_global(base_url, token, func_id):
     return json.load(resp)
 
 
+def install_on_tenant(base_url, email, password, functions_to_install, make_global=False):
+    """Install functions on a single tenant. Returns dict of results."""
+    token = authenticate(base_url, email, password)
+    existing_functions = get_existing_functions(base_url, token)
+    existing_tools = get_existing_tools(base_url, token)
+    results = {}
+
+    for func_id, func_name, func_type, source, meta in functions_to_install:
+        existing = existing_tools if func_type == 'tool' else existing_functions
+        try:
+            if func_id in existing:
+                print(f"    [{func_type}] {func_name}: Updating...", end=" ", flush=True)
+                update_function(base_url, token, func_id, func_name, source, meta, func_type)
+                print("OK")
+                results[func_id] = 'updated'
+            else:
+                print(f"    [{func_type}] {func_name}: Creating...", end=" ", flush=True)
+                create_function(base_url, token, func_id, func_name, source, meta, func_type)
+                print("OK")
+                results[func_id] = 'created'
+
+            if make_global and func_type != 'tool':
+                toggle_function_global(base_url, token, func_id)
+
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode()[:300]
+            print(f"ERROR HTTP {e.code}: {error_body}")
+            results[func_id] = f'error: {e.code}'
+        except Exception as e:
+            print(f"ERROR: {e}")
+            results[func_id] = f'error: {e}'
+
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description='Install community functions into Open WebUI')
     parser.add_argument('--dry-run', action='store_true', help='Show plan without executing')
@@ -171,19 +218,15 @@ def main():
                         help='Enable functions globally after installation')
     parser.add_argument('--functions', nargs='+',
                         help='Only install these functions (by ID)')
+    parser.add_argument('--tenant', default='myia',
+                        help='Tenant to install on (default: myia, use "all" for all tenants)')
     args = parser.parse_args()
 
     # Load credentials
-    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
-    load_env(env_path)
-
-    base_url = os.environ.get('MYIA_URL', 'https://open-webui.myia.io')
-    email = os.environ.get('MYIA_EMAIL')
-    password = os.environ.get('MYIA_PASSWORD')
-
-    if not email or not password:
-        print("ERROR: MYIA_EMAIL and MYIA_PASSWORD must be set in .env")
-        sys.exit(1)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_dir = os.path.dirname(script_dir)
+    for env_file in ['.env', 'myia.env']:
+        load_env(os.path.join(repo_dir, env_file))
 
     # Check which functions to install
     functions_to_install = []
@@ -208,56 +251,48 @@ def main():
         print("\n=== DRY RUN: No changes made ===")
         return
 
-    # Authenticate
-    print(f"\n=== Authenticating to {base_url} ===")
-    token = authenticate(base_url, email, password)
-    print("  OK")
+    # Determine tenants
+    if args.tenant == 'all':
+        tenants_to_process = list(TENANTS.items())
+    else:
+        if args.tenant in TENANTS:
+            tenants_to_process = [(args.tenant, TENANTS[args.tenant])]
+        else:
+            # Legacy single-tenant mode
+            base_url = os.environ.get('MYIA_URL', 'https://open-webui.myia.io')
+            email = os.environ.get('MYIA_EMAIL')
+            password = os.environ.get('MYIA_PASSWORD')
+            if not email or not password:
+                print("ERROR: credentials not found")
+                sys.exit(1)
+            tenants_to_process = [('myia', ('MYIA_URL', 'MYIA_EMAIL', 'MYIA_PASSWORD'))]
 
-    # Get existing functions and tools
-    print("\n=== Checking existing functions and tools ===")
-    existing_functions = get_existing_functions(base_url, token)
-    existing_tools = get_existing_tools(base_url, token)
-    print(f"  {len(existing_functions)} functions exist, {len(existing_tools)} tools exist")
+    all_results = {}
+    for tenant_name, (url_key, email_key, pwd_key) in tenants_to_process:
+        url = os.environ.get(url_key, '')
+        email = os.environ.get(email_key, '')
+        pwd = os.environ.get(pwd_key, '')
 
-    # Install
-    print("\n=== Installing ===")
-    results = {}
+        if not url or not email or not pwd:
+            print(f"\n  {tenant_name}: SKIP (missing credentials)")
+            continue
 
-    for func_id, func_name, func_type, source, meta in functions_to_install:
-        existing = existing_tools if func_type == 'tool' else existing_functions
+        print(f"\n=== {tenant_name}: {url} ===")
         try:
-            if func_id in existing:
-                print(f"\n  [{func_type}] {func_name}: Updating (already exists)...", end=" ", flush=True)
-                result = update_function(base_url, token, func_id, func_name, source, meta, func_type)
-                print("OK (updated)")
-                results[func_id] = 'updated'
-            else:
-                print(f"\n  [{func_type}] {func_name}: Creating...", end=" ", flush=True)
-                result = create_function(base_url, token, func_id, func_name, source, meta, func_type)
-                print("OK (created)")
-                results[func_id] = 'created'
-
-            # Toggle global if requested (only for functions, not tools)
-            if args.make_global and func_type != 'tool':
-                print(f"    Enabling globally...", end=" ", flush=True)
-                toggle_function_global(base_url, token, func_id)
-                print("OK")
-
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode()[:300]
-            print(f"ERROR HTTP {e.code}: {error_body}")
-            results[func_id] = f'error: {e.code}'
+            results = install_on_tenant(url, email, pwd, functions_to_install, args.make_global)
+            all_results[tenant_name] = results
         except Exception as e:
-            print(f"ERROR: {e}")
-            results[func_id] = f'error: {e}'
+            print(f"  FAILED: {e}")
+            all_results[tenant_name] = {'_error': str(e)}
 
     # Summary
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
-    for func_id, status in results.items():
-        func_name = next(n for i, n, _, _, _ in functions_to_install if i == func_id)
-        print(f"  {func_name}: {status}")
+    for tenant_name, results in all_results.items():
+        print(f"\n  {tenant_name}:")
+        for func_id, status in results.items():
+            print(f"    {func_id}: {status}")
     print("=" * 60)
 
 
