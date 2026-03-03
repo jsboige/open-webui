@@ -124,12 +124,44 @@
 
 ---
 
-## Remaining Items (for next session)
+## Phase 5: Final Fixes (session 2)
 
-1. **Persona base model migrations**: Benchmark supports switching expensive OpenAI models (gpt-5 at $30/M, o1 at $60/M, o3 at $40/M) to cheaper alternatives. Recommendations ready in `optimization-recommendations.md`. Needs user validation before applying.
+### 5.1 Dr. Claire Lacroix System Prompt Fix
+- **Bug**: System prompt was a copy-paste of Dr. Étienne Charpentier's prompt
+- **Fix**: Wrote distinctive Lacanian psychoanalyst prompt (3112 chars) emphasizing RSI, signifiant, objet petit a
+- Applied to myia (only tenant with this model)
 
-2. **Dr. Claire Lacroix system prompt bug**: Uses Dr. Étienne Charpentier's prompt (copy-paste error). Needs manual correction.
+### 5.2 Persona Base Model Migrations
+- **Script:** `scripts/optimize-models.py` (updated with PERSONA_MIGRATIONS)
+- **11 personas migrated** on myia (other tenants have subset of models):
 
-3. **New community functions**: AI Infographic Generator, Translation Assistant, LLM Council tool recommended for installation. Requires downloading source from openwebui.com (user login needed).
+| Persona | Old Base | New Base | Savings |
+|---------|----------|----------|---------|
+| Albéric de Clerval | `OpenAI.gpt-5-chat-latest` | `MistralAI.mistral-medium-latest` | 96% |
+| deep thought | `OpenAI.gpt-5-chat-latest` | `MistralAI.mistral-medium-latest` | 96% |
+| Isola | `OpenAI.gpt-5-chat-latest` | `MistralAI.mistral-medium-latest` | 96% |
+| Vanessa | `OpenAI.gpt-5-chat-latest` | `MistralAI.mistral-medium-latest` | 96% |
+| Samantha | `OpenAI.gpt-5.2-chat-latest` | `MistralAI.mistral-medium-latest` | 96% |
+| psychologist | `OpenAI.gpt-5-chat-latest` | `OpenRouter.anthropic/claude-haiku-4.5` | 87% |
+| codewriter | `OpenAI.gpt-5` | `MistralAI.devstral-small-latest` | 99% |
+| Emilio | `OpenAI.gpt-5` | `MistralAI.devstral-small-latest` | 99% |
+| Dr. Claire Lacroix | `OpenAI.o1` | `OpenRouter.anthropic/claude-sonnet-4` | 75% |
+| Samantha R1 | `OpenAI.o3` | `OpenRouter.anthropic/claude-sonnet-4` | 63% |
+| Dr. Étienne Charpentier | `OpenAI.gpt-4.1` | `MistralAI.mistral-medium-latest` | 85% |
 
-4. **multi-agent model**: Inactive, uses deprecated local model. Consider deleting or migrating.
+### 5.3 multi-agent Model Deletion
+- Deleted from myia, epf-genai, ece, epita (4 tenants where it existed)
+- Was inactive, using deprecated `Local.Qwen/Qwen2.5-7B-Instruct-AWQ`
+
+### 5.4 New Community Functions
+- **Smart Infographic** (action, @Fu-Jie v1.5.0): AI-powered infographic generator with AntV, 70+ templates
+- **LLM Council** (tool, @mabntt v0.3.0): Multi-model deliberation with 3-stage process
+- Deployed to all 7 tenants (14 creates)
+- **Translation Assistant** (@h4nn1b4l): Could not download — openwebui.com requires login
+
+---
+
+## Remaining Items
+
+1. **Translation Assistant**: Community function by @h4nn1b4l — requires openwebui.com login to download source code
+2. **Persona quality validation**: The 11 persona migrations should be tested interactively to verify response quality matches expectations (especially creative/conversational personas on Mistral Medium)

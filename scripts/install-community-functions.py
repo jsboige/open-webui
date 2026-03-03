@@ -35,6 +35,9 @@ FUNCTIONS = [
     ('sub_agent.py', 'sub_agent', 'Sub Agent', 'tool'),
     ('youtube_transcript.py', 'youtube_transcript', 'YouTube Transcript Provider', 'tool'),
     ('visuals_toolkit.py', 'visuals_toolkit', 'Visuals Toolkit', 'tool'),
+    # Priority 3 (added 2026-03-03)
+    ('smart_infographic.py', 'smart_infographic', 'Smart Infographic', 'action'),
+    ('llm_council.py', 'llm_council', 'LLM Council', 'tool'),
 ]
 
 FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'community-functions')

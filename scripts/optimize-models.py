@@ -5,7 +5,10 @@ Applies:
 1. TP tutor base_model_id migration (OpenAI.gpt-4.1-mini → MistralAI.devstral-small-latest)
 2. Missing descriptions for utility models
 3. Missing system prompts for utility models
-4. Deploys changes to all tenants
+4. Persona base_model_id migrations (OpenAI gpt-5/o1/o3 → cheaper alternatives)
+5. System prompt fixes (Dr. Claire Lacroix copy-paste bug)
+6. Model deletion (inactive multi-agent)
+7. Deploys changes to all tenants
 """
 
 import argparse
@@ -83,6 +86,94 @@ SYSTEM_PROMPTS = {
 - Signale toute information peu lisible ou ambiguë
 - Réponds en français sauf si l'utilisateur écrit en anglais""",
 }
+
+# ---------------------------------------------------------------------------
+# Persona base_model_id migrations (Phase 2: expensive OpenAI → alternatives)
+# ---------------------------------------------------------------------------
+PERSONA_MIGRATIONS = {
+    # Creative/conversational → MistralAI.mistral-medium-latest ($1.2/M)
+    "albric-de-clerval": {
+        "old_bases": ["OpenAI.gpt-5-chat-latest", "OpenAI.gpt-5"],
+        "new_base": "MistralAI.mistral-medium-latest",
+    },
+    "deep-thought:latest": {
+        "old_bases": ["OpenAI.gpt-5-chat-latest", "OpenAI.gpt-5"],
+        "new_base": "MistralAI.mistral-medium-latest",
+    },
+    "isola": {
+        "old_bases": ["OpenAI.gpt-5-chat-latest", "OpenAI.gpt-5"],
+        "new_base": "MistralAI.mistral-medium-latest",
+    },
+    "vanessa": {
+        "old_bases": ["OpenAI.gpt-5-chat-latest", "OpenAI.gpt-5"],
+        "new_base": "MistralAI.mistral-medium-latest",
+    },
+    "samantha": {
+        "old_bases": ["OpenAI.gpt-5.2-chat-latest", "OpenAI.gpt-5-chat-latest", "OpenAI.gpt-5"],
+        "new_base": "MistralAI.mistral-medium-latest",
+    },
+    # Psychologist → Claude Haiku 4.5 (fast, concise, $4/M)
+    "psychologist:latest": {
+        "old_bases": ["OpenAI.gpt-5-chat-latest", "OpenAI.gpt-5"],
+        "new_base": "OpenRouter.anthropic/claude-haiku-4.5",
+    },
+    # Code personas → MistralAI.devstral-small-latest ($0.3/M)
+    "codewriter:latest": {
+        "old_bases": ["OpenAI.gpt-5", "OpenAI.gpt-5-chat-latest"],
+        "new_base": "MistralAI.devstral-small-latest",
+    },
+    "emilio:latest": {
+        "old_bases": ["OpenAI.gpt-5", "OpenAI.gpt-5-chat-latest"],
+        "new_base": "MistralAI.devstral-small-latest",
+    },
+    # Reasoning personas → Claude Sonnet 4 ($15/M)
+    "dr-claire-lacroix": {
+        "old_bases": ["OpenAI.o1"],
+        "new_base": "OpenRouter.anthropic/claude-sonnet-4",
+    },
+    "samantha-r1": {
+        "old_bases": ["OpenAI.o3"],
+        "new_base": "OpenRouter.anthropic/claude-sonnet-4",
+    },
+    # Mid-range → MistralAI.mistral-medium-latest ($1.2/M)
+    "professeur-psychanalyste": {
+        "old_bases": ["OpenAI.gpt-4.1"],
+        "new_base": "MistralAI.mistral-medium-latest",
+    },
+}
+
+# ---------------------------------------------------------------------------
+# System prompt fixes
+# ---------------------------------------------------------------------------
+PROMPT_FIXES = {
+    "dr-claire-lacroix": """Tu es le Dr. Claire Lacroix, une psychanalyste universitaire reconnue pour ton expertise approfondie dans la psychanalyse lacanienne. Tu allies rigueur conceptuelle et clarté didactique, mobilisant une riche réflexion nourrie par la théorie de Lacan, mais aussi par les dialogues entre psychanalyse, philosophie, linguistique structurale et études culturelles.
+
+#### **Caractéristiques principales :**
+1. **Spécialiste lacanienne** : Tu maîtrises en profondeur l'enseignement de Lacan — les trois registres (Réel, Symbolique, Imaginaire), la logique du signifiant, l'objet petit a, la jouissance, le graphe du désir, les formules de la sexuation. Tu relies ces concepts à la clinique et aux enjeux contemporains.
+2. **Analyse structurale** : Tu abordes les textes, les cas cliniques et les productions culturelles à travers une grille de lecture structurale, cherchant ce qui se dit « entre les lignes », les effets de signifiant, les points de capiton et les formations de l'inconscient.
+3. **Clarté et pédagogie** : Malgré la complexité de la théorie lacanienne, tu sais rendre accessibles les concepts les plus abstraits. Tu utilises des exemples cliniques, des métaphores éclairantes et des reformulations progressives.
+4. **Pensée dialectique** : Tu ne te contentes pas d'exposer — tu questionnes, tu mets en tension les concepts, tu explores les paradoxes. Tu es sensible aux impasses théoriques et aux ouvertures qu'elles produisent.
+5. **Écoute analytique** : Tu portes attention à ce que l'interlocuteur dit, mais aussi à ce qu'il ne dit pas. Tu relèves les lapsus, les hésitations, les contradictions — non pour piéger, mais pour inviter à l'élaboration.
+6. **Éthique de la psychanalyse** : Tu ne simplifies jamais à outrance. Tu respectes l'irréductibilité du sujet et la singularité de chaque situation. Tu distingues clairement ce qui relève de la théorie, de la clinique et de l'interprétation.
+
+#### **Ton et style :**
+- Tes réponses sont précises et structurées, nourries de références à Lacan, Freud, et aux penseurs qui ont dialogué avec la psychanalyse (Lévi-Strauss, Jakobson, Heidegger, etc.).
+- Tu emploies un langage analytique mais toujours accessible, en explicitant les termes techniques.
+- Tu as un style direct, parfois incisif, avec une pointe d'ironie bienveillante typiquement lacanienne.
+
+#### **Directives comportementales :**
+1. Face à un texte complexe, tu procèdes méthodiquement : repérage des signifiants-maîtres, analyse de la structure, mise en lumière de ce qui fait énigme ou symptôme.
+2. Face à la confusion, tu ne cherches pas à rassurer prématurément — tu invites à formuler la question autrement, à laisser émerger ce qui insiste.
+3. Tu t'appuies toujours sur des sources et tu signales clairement ce qui relève de ton interprétation.
+4. Tu encourages une pensée rigoureuse, invitant l'interlocuteur à ne pas se satisfaire des évidences et à interroger ses propres présupposés.
+
+Tu es une universitaire accomplie, une clinicienne expérimentée et une penseuse exigeante, guidant tes interlocuteurs dans l'exploration de la psyché humaine à travers le prisme lacanien.""",
+}
+
+# ---------------------------------------------------------------------------
+# Models to delete (inactive/deprecated)
+# ---------------------------------------------------------------------------
+MODELS_TO_DELETE = ["multi-agent:latest"]
 
 # Tenants
 TENANTS = {
@@ -174,10 +265,38 @@ def optimize_model(model_data, model_id, dry_run=False):
             params["system"] = SYSTEM_PROMPTS[model_id]
             changes.append(f"system prompt: added ({len(SYSTEM_PROMPTS[model_id])} chars)")
 
+    # 4. Persona base model migration
+    if model_id in PERSONA_MIGRATIONS:
+        migration = PERSONA_MIGRATIONS[model_id]
+        old_base = model_data.get("base_model_id", "")
+        if old_base in migration["old_bases"]:
+            updated["base_model_id"] = migration["new_base"]
+            changes.append(f"base_model_id: {old_base} → {migration['new_base']}")
+
+    # 5. System prompt fixes (replace incorrect prompts)
+    if model_id in PROMPT_FIXES:
+        current_system = params.get("system", "")
+        new_system = PROMPT_FIXES[model_id]
+        # Only fix if current prompt doesn't match the fix (avoid re-applying)
+        if current_system != new_system:
+            params["system"] = new_system
+            changes.append(f"system prompt: FIXED ({len(new_system)} chars)")
+
     updated["meta"] = meta
     updated["params"] = params
 
     return updated, changes
+
+
+def owui_delete_model(base_url, token, model_id):
+    """Delete a model from OWUI. POST /api/v1/models/model/delete with id in body."""
+    resp = requests.post(
+        f"{base_url}/api/v1/models/model/delete",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"id": model_id},
+        timeout=30,
+    )
+    return resp.status_code == 200, resp.text[:100] if resp.status_code != 200 else "OK"
 
 
 def main():
@@ -194,7 +313,13 @@ def main():
         load_env(os.path.join(repo_dir, env_file))
 
     # All models to optimize
-    all_model_ids = set(TP_TUTOR_MIGRATION["models"]) | set(DESCRIPTIONS.keys()) | set(SYSTEM_PROMPTS.keys())
+    all_model_ids = (
+        set(TP_TUTOR_MIGRATION["models"])
+        | set(DESCRIPTIONS.keys())
+        | set(SYSTEM_PROMPTS.keys())
+        | set(PERSONA_MIGRATIONS.keys())
+        | set(PROMPT_FIXES.keys())
+    )
 
     tenants_to_process = (
         list(TENANTS.keys()) if args.tenant == "all"
@@ -203,10 +328,11 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"  MODEL OPTIMIZATION — {'DRY RUN' if args.dry_run else 'APPLYING CHANGES'}")
-    print(f"  Models: {len(all_model_ids)} | Tenants: {len(tenants_to_process)}")
+    print(f"  Models: {len(all_model_ids)} | Delete: {len(MODELS_TO_DELETE)} | Tenants: {len(tenants_to_process)}")
     print(f"{'='*60}\n")
 
     total_changes = 0
+    total_deleted = 0
 
     for tenant_name in tenants_to_process:
         url_key, email_key, pwd_key = TENANTS[tenant_name]
@@ -225,6 +351,7 @@ def main():
             continue
         print(f"    Login OK")
 
+        # Optimize models
         for model_id in sorted(all_model_ids):
             model = owui_get_model(url, token, model_id)
             if not model:
@@ -246,9 +373,24 @@ def main():
                 status = "APPLIED" if ok else f"FAILED ({msg})"
                 print(f"    {model_id}: {status}")
 
+        # Delete deprecated models
+        for model_id in MODELS_TO_DELETE:
+            model = owui_get_model(url, token, model_id)
+            if not model:
+                print(f"    {model_id}: not found (already deleted)")
+                continue
+            print(f"    {model_id}: DELETE (inactive, deprecated)")
+            if not args.dry_run:
+                ok, msg = owui_delete_model(url, token, model_id)
+                status = "DELETED" if ok else f"DELETE FAILED ({msg})"
+                print(f"    {model_id}: {status}")
+                if ok:
+                    total_deleted += 1
+
         print()
 
     print(f"\nTotal changes: {total_changes}")
+    print(f"Total deleted: {total_deleted}")
     if args.dry_run:
         print("(dry run — no changes applied)")
 
