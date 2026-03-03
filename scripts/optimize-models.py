@@ -126,14 +126,14 @@ PERSONA_MIGRATIONS = {
         "old_bases": ["OpenAI.gpt-5", "OpenAI.gpt-5-chat-latest"],
         "new_base": "MistralAI.devstral-small-latest",
     },
-    # Reasoning personas → Claude Sonnet 4 ($15/M)
+    # Reasoning personas → Claude Sonnet 4.6 ($15/M)
     "dr-claire-lacroix": {
-        "old_bases": ["OpenAI.o1"],
-        "new_base": "OpenRouter.anthropic/claude-sonnet-4",
+        "old_bases": ["OpenAI.o1", "OpenRouter.anthropic/claude-sonnet-4"],
+        "new_base": "OpenRouter.anthropic/claude-sonnet-4-6",
     },
     "samantha-r1": {
-        "old_bases": ["OpenAI.o3"],
-        "new_base": "OpenRouter.anthropic/claude-sonnet-4",
+        "old_bases": ["OpenAI.o3", "OpenRouter.anthropic/claude-sonnet-4"],
+        "new_base": "OpenRouter.anthropic/claude-sonnet-4-6",
     },
     # Mid-range → MistralAI.mistral-medium-latest ($1.2/M)
     "professeur-psychanalyste": {

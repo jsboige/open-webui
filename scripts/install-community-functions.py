@@ -38,6 +38,7 @@ FUNCTIONS = [
     # Priority 3 (added 2026-03-03)
     ('smart_infographic.py', 'smart_infographic', 'Smart Infographic', 'action'),
     ('llm_council.py', 'llm_council', 'LLM Council', 'tool'),
+    ('easylang.py', 'easylang', 'EasyLang Translation Assistant', 'filter'),
 ]
 
 FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'community-functions')

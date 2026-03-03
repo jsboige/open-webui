@@ -157,11 +157,20 @@
 - **Smart Infographic** (action, @Fu-Jie v1.5.0): AI-powered infographic generator with AntV, 70+ templates
 - **LLM Council** (tool, @mabntt v0.3.0): Multi-model deliberation with 3-stage process
 - Deployed to all 7 tenants (14 creates)
-- **Translation Assistant** (@h4nn1b4l): Could not download — openwebui.com requires login
+
+### 5.5 EasyLang Translation Assistant (session 3)
+- **EasyLang** (filter, @h4nn1b4l v0.2.7): Smart bidirectional translation with context-based summarization
+- Downloaded from GitHub repo `annibale-x/Easylang` (previously blocked — openwebui.com required login)
+- Commands: `tr` (translate), `trs` (summarize+translate), `trc` (translate+continue chat), `tl`/`bl` (config)
+- Deployed as global filter to all 7 tenants (7 creates)
+
+### 5.6 Reasoning Persona Model Update (session 3)
+- **Dr. Claire Lacroix**: `OpenRouter.anthropic/claude-sonnet-4` → `OpenRouter.anthropic/claude-sonnet-4-6`
+- **Samantha R1**: `OpenRouter.anthropic/claude-sonnet-4` → `OpenRouter.anthropic/claude-sonnet-4-6`
+- Applied on myia (only tenant with these personas)
 
 ---
 
 ## Remaining Items
 
-1. **Translation Assistant**: Community function by @h4nn1b4l — requires openwebui.com login to download source code
-2. **Persona quality validation**: The 11 persona migrations should be tested interactively to verify response quality matches expectations (especially creative/conversational personas on Mistral Medium)
+1. **Persona quality validation**: The 11 persona migrations should be tested interactively to verify response quality matches expectations (especially creative/conversational personas on Mistral Medium)
