@@ -74,6 +74,32 @@ export async function getUsers(
 }
 
 /**
+ * Fetch full model details (including params, system prompt, function_calling config).
+ * Uses GET /api/v1/models/model?id=X which returns the complete model object.
+ */
+export async function getModelDetail(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  modelId: string,
+): Promise<{
+  id: string;
+  name: string;
+  base_model_id: string | null;
+  params: Record<string, unknown>;
+  meta: Record<string, unknown>;
+  [key: string]: unknown;
+}> {
+  const response = await request.get(`${baseUrl}/api/v1/models/model?id=${encodeURIComponent(modelId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok()) {
+    throw new Error(`Failed to fetch model detail for "${modelId}": ${response.status()}`);
+  }
+  return await response.json();
+}
+
+/**
  * Fetch functions/tools list.
  */
 export async function getFunctions(
