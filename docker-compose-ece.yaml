@@ -1,0 +1,71 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-cuda}
+    volumes:
+      - \\wsl.localhost\Ubuntu\home\jesse\ece\open-webui:/app/backend/data
+    ports:
+      - ${OPEN_WEBUI_PORT-3012}:8080
+    environment:
+      - 'WEBUI_SECRET_KEY='
+      - 'WEBUI_NAME=${WEBUI_NAME}'
+      - 'VECTOR_DB=${VECTOR_DB}'
+      - 'QDRANT_URI=${QDRANT_URI}'
+      - 'QDRANT_API_KEY=${QDRANT_API_KEY}'
+      - 'AIOHTTP_CLIENT_TIMEOUT=${AIOHTTP_CLIENT_TIMEOUT-6000}'
+      - 'DATABASE_URL=${DATABASE_URL}'
+      - 'ENABLE_WEBSOCKET_SUPPORT=${ENABLE_WEBSOCKET_SUPPORT-true}'
+      - 'WEBSOCKET_MANAGER=${WEBSOCKET_MANAGER-redis}'
+      - 'WEBSOCKET_REDIS_URL=${WEBSOCKET_REDIS_URL}'
+      - 'WEBSOCKET_REDIS_LOCK_TIMEOUT=${WEBSOCKET_REDIS_LOCK_TIMEOUT-300}'
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks:
+      - open-webui-shared
+    restart: unless-stopped
+  open-terminal:
+    image: open-terminal-sys:latest
+    container_name: open-terminal-ece
+    volumes:
+      - open-terminal-data:/home/user
+    environment:
+      - 'OPEN_TERMINAL_API_KEY=${OPEN_TERMINAL_API_KEY}'
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+    networks:
+      - open-webui-shared
+    restart: unless-stopped
+
+  channel-bot:
+    build:
+      context: ./scripts/bots
+      dockerfile: Dockerfile
+    container_name: ece-channel-bot
+    environment:
+      - 'WEBUI_URL=${CHANNEL_BOT_WEBUI_URL-https://ece.open-webui.myia.io}'
+      - 'BOT_EMAIL=${CHANNEL_BOT_EMAIL}'
+      - 'BOT_PASSWORD=${CHANNEL_BOT_PASSWORD}'
+      - 'BOT_TYPE=${CHANNEL_BOT_TYPE-faq}'
+      - 'BOT_NAME=${CHANNEL_BOT_NAME-Assistant ECE}'
+      - 'BOT_MODEL=${CHANNEL_BOT_MODEL-Local.qwen3.5-35b-a3b-fast}'
+      - 'BOT_CHANNELS=${CHANNEL_BOT_CHANNELS-}'
+      - 'BOT_TRIGGER=${CHANNEL_BOT_TRIGGER-}'
+      - 'BOT_KB_COLLECTIONS=${CHANNEL_BOT_KB_COLLECTIONS-}'
+      - 'BOT_RAG_TOP_K=${CHANNEL_BOT_RAG_TOP_K-5}'
+      - 'LOG_LEVEL=${CHANNEL_BOT_LOG_LEVEL-INFO}'
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks:
+      - open-webui-shared
+    restart: unless-stopped
+    depends_on:
+      - open-webui
+
+volumes:
+  open-terminal-data: {}
+
+networks:
+  open-webui-shared:
+    external: true

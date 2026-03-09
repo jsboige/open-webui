@@ -1,0 +1,102 @@
+# Shared Infrastructure Services for Open WebUI Multi-Tenant
+# Contains: PostgreSQL, Tika (document extraction), Redis (WebSocket pub/sub)
+#
+# Usage:
+#   docker compose -p open-webui-infra -f docker-compose-infra.yaml up -d
+#
+# All tenant open-webui containers reach these services via the open-webui-shared network.
+# Redis isolation: each tenant uses a different DB number (myia=0, epf=1, epf-genai=2, ece=3, esg=4, epita=5, pauwels=6)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: open-webui-postgres
+    environment:
+      POSTGRES_USER: openwebui
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openwebui_secret}
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - open-webui-shared
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openwebui -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - "no-new-privileges:true"
+
+  tika:
+    image: apache/tika:latest-full
+    ports:
+      - "9917:9998"
+    networks:
+      - open-webui-shared
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9998"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  redis:
+    image: docker.io/valkey/valkey:8.0.1-alpine
+    volumes:
+      - redis-data:/data
+    command: "valkey-server --save 30 1"
+    healthcheck:
+      test: "[ $$(valkey-cli ping) = 'PONG' ]"
+      start_period: 5s
+      interval: 1s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+    ports:
+      - "6351:6379"
+    networks:
+      - open-webui-shared
+
+volumes:
+  postgres-data:
+    external: true
+    name: myia-open-webui_postgres-data
+  redis-data: {}
+
+networks:
+  open-webui-shared:
+    external: true

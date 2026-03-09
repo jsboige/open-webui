@@ -1,0 +1,46 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-cuda}
+    volumes:
+      - \\wsl.localhost\Ubuntu\home\jesse\pauwels\open-webui:/app/backend/data
+    ports:
+      - ${OPEN_WEBUI_PORT-3016}:8080
+    environment:
+      - 'WEBUI_SECRET_KEY='
+      - 'WEBUI_NAME=${WEBUI_NAME}'
+      - 'VECTOR_DB=${VECTOR_DB}'
+      - 'QDRANT_URI=${QDRANT_URI}'
+      - 'QDRANT_API_KEY=${QDRANT_API_KEY}'
+      - 'AIOHTTP_CLIENT_TIMEOUT=${AIOHTTP_CLIENT_TIMEOUT-6000}'
+      - 'DATABASE_URL=${DATABASE_URL}'
+      - 'ENABLE_WEBSOCKET_SUPPORT=${ENABLE_WEBSOCKET_SUPPORT-true}'
+      - 'WEBSOCKET_MANAGER=${WEBSOCKET_MANAGER-redis}'
+      - 'WEBSOCKET_REDIS_URL=${WEBSOCKET_REDIS_URL}'
+      - 'WEBSOCKET_REDIS_LOCK_TIMEOUT=${WEBSOCKET_REDIS_LOCK_TIMEOUT-300}'
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks:
+      - open-webui-shared
+    restart: unless-stopped
+  open-terminal:
+    image: open-terminal-finance:latest
+    container_name: open-terminal-pauwels
+    volumes:
+      - open-terminal-data:/home/user
+    environment:
+      - 'OPEN_TERMINAL_API_KEY=${OPEN_TERMINAL_API_KEY}'
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+    networks:
+      - open-webui-shared
+    restart: unless-stopped
+
+volumes:
+  open-terminal-data: {}
+
+networks:
+  open-webui-shared:
+    external: true

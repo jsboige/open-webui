@@ -1,5 +1,12 @@
 x.py
 yarn.lock
+backups/
+.claude/*
+!.claude/commands/
+!.claude/skills/
+*.png
+*.jpeg
+*.jpg
 .DS_Store
 node_modules
 /build
@@ -7,7 +14,9 @@ node_modules
 /package
 .env
 .env.*
+*.env
 !.env.example
+!*.env.example
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 # Byte-compiled / optimized / DLL files
@@ -15,7 +24,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 .nvmrc
-CLAUDE.md
 # C extensions
 *.so
 
@@ -310,3 +318,8 @@ dist
 cypress/videos
 cypress/screenshots
 .vscode/settings.json
+
+# playwright artifacts
+tests/playwright/.auth/
+test-results/
+playwright-report/

@@ -1,0 +1,39 @@
+# DEPRECATED: This standalone file is superseded by docker-compose-infra.yaml
+# which combines PostgreSQL + Tika + Redis into a single project (open-webui-infra).
+# Use: docker compose -p open-webui-infra -f docker-compose-infra.yaml up -d
+
+services:
+  redis:
+    image: docker.io/valkey/valkey:8.0.1-alpine
+    volumes:
+      - redis-data:/data
+    command: "valkey-server --save 30 1"
+    healthcheck:
+      test: "[ $$(valkey-cli ping) = 'PONG' ]"
+      start_period: 5s
+      interval: 1s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+    ports:
+      - "6351:6379"
+    networks:
+      - open-webui-shared
+
+volumes:
+  redis-data: {}
+
+networks:
+  open-webui-shared:
+    external: true

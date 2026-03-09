@@ -1,0 +1,17 @@
+# Open Terminal - Finance Profile (ESG, Pauwels)
+# Based on open-terminal:latest (already includes pandas, numpy, sklearn, etc.)
+# Adds: yfinance, pandas-ta, statsmodels, financial analysis tools
+FROM ghcr.io/open-webui/open-terminal:latest
+
+USER root
+
+# Python finance packages (avoiding problematic deps: prophet, ta-lib-bin)
+RUN pip install --no-cache-dir \
+    yfinance \
+    pandas-ta \
+    statsmodels \
+    plotly \
+    arch \
+    quantstats
+
+USER user
