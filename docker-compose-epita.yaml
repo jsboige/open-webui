@@ -38,6 +38,31 @@ services:
       - open-webui-shared
     restart: unless-stopped
 
+  channel-bot:
+    build:
+      context: ./scripts/bots
+      dockerfile: Dockerfile
+    container_name: epita-channel-bot
+    environment:
+      - 'WEBUI_URL=${CHANNEL_BOT_WEBUI_URL-https://epita.open-webui.myia.io}'
+      - 'BOT_EMAIL=${CHANNEL_BOT_EMAIL}'
+      - 'BOT_PASSWORD=${CHANNEL_BOT_PASSWORD}'
+      - 'BOT_TYPE=${CHANNEL_BOT_TYPE-faq}'
+      - 'BOT_NAME=${CHANNEL_BOT_NAME-Assistant EPITA}'
+      - 'BOT_MODEL=${CHANNEL_BOT_MODEL-Local.qwen3.5-35b-a3b-fast}'
+      - 'BOT_CHANNELS=${CHANNEL_BOT_CHANNELS-}'
+      - 'BOT_TRIGGER=${CHANNEL_BOT_TRIGGER-}'
+      - 'BOT_KB_COLLECTIONS=${CHANNEL_BOT_KB_COLLECTIONS-}'
+      - 'BOT_RAG_TOP_K=${CHANNEL_BOT_RAG_TOP_K-5}'
+      - 'LOG_LEVEL=${CHANNEL_BOT_LOG_LEVEL-INFO}'
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks:
+      - open-webui-shared
+    restart: unless-stopped
+    depends_on:
+      - open-webui
+
 volumes:
   open-terminal-data: {}
 
