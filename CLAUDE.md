@@ -108,6 +108,7 @@ make update              # git pull + rebuild + restart
 | `scripts/migrate-sqlite-to-postgres.py` | SQLite→PG migration (runs inside container, SAVEPOINT-based error handling) |
 | `scripts/bulk-kb-upload.py` | Host-side PDF uploader with skip-existing, delay, size filtering |
 | `scripts/create-thematic-kbs.py` | Create thematic KBs from Bibliographie IA subdirectories |
+| `scripts/checklist-tenant-verification.md` | Pre-course/deployment checklist for tenant instances |
 
 ## Notes
 
