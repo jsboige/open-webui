@@ -148,6 +148,104 @@ export async function chatCompletion(
 }
 
 /**
+ * Send a chat completion and return the full assistant message (content,
+ * reasoning, tool_calls). OWUI extracts Qwen's <think>...</think> blocks into a
+ * separate `reasoning` field, so tests checking for thinking mode need this.
+ */
+export async function chatCompletionFull(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  model: string,
+  userMessage: string,
+  options?: { timeout?: number },
+): Promise<{ content: string | null; reasoning: string | null; tool_calls: unknown[] } | null> {
+  const response = await request.post(`${baseUrl}/api/chat/completions`, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    data: {
+      model,
+      messages: [{ role: 'user', content: userMessage }],
+      stream: false,
+    },
+    timeout: options?.timeout ?? 60_000,
+  });
+  if (!response.ok()) return null;
+  const json = await response.json();
+  const msg = json?.choices?.[0]?.message;
+  if (!msg) return null;
+  return {
+    content: msg.content ?? null,
+    reasoning: msg.reasoning ?? null,
+    tool_calls: msg.tool_calls ?? [],
+  };
+}
+
+/**
+ * Send a chat completion with an inline image (base64). Returns content or null.
+ */
+export async function chatCompletionWithImage(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  model: string,
+  prompt: string,
+  imageBase64: string,
+  options?: { timeout?: number },
+): Promise<string | null> {
+  const body = {
+    model,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${imageBase64}` } },
+        ],
+      },
+    ],
+    stream: false,
+  };
+  const response = await request.post(`${baseUrl}/api/chat/completions`, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    data: body,
+    timeout: options?.timeout ?? 60_000,
+  });
+  if (!response.ok()) return null;
+  const json = await response.json();
+  return json?.choices?.[0]?.message?.content ?? null;
+}
+
+/**
+ * Send a chat completion with tools. Returns the tool_calls array if the model
+ * decided to call a tool, else null (including on HTTP errors).
+ */
+export async function chatCompletionWithTools(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  model: string,
+  prompt: string,
+  tools: Array<Record<string, unknown>>,
+  options?: { timeout?: number },
+): Promise<Array<{ function: { name: string; arguments: string } }> | null> {
+  const body = {
+    model,
+    messages: [{ role: 'user', content: prompt }],
+    tools,
+    tool_choice: 'auto',
+    stream: false,
+  };
+  const response = await request.post(`${baseUrl}/api/chat/completions`, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    data: body,
+    timeout: options?.timeout ?? 60_000,
+  });
+  if (!response.ok()) return null;
+  const json = await response.json();
+  return json?.choices?.[0]?.message?.tool_calls ?? null;
+}
+
+/**
  * Generate TTS audio. Returns the response size in bytes, or -1 on failure.
  */
 export async function generateTTS(
