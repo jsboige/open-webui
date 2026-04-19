@@ -11,7 +11,7 @@ const avatarMap = {
   'expert-analyste': path.join(tmpDir, 'avatar_analyste_v3.json'),
   'redacteur-technique': path.join(tmpDir, 'avatar_redacteur_v3.json'),
   'vision-expert': path.join(tmpDir, 'avatar_vision_v3.json'),
-  'Local.qwen3.5-35b-a3b-fast': path.join(tmpDir, 'avatar_fast_v3.json'),
+  'Local.qwen3.6-35b-a3b-fast': path.join(tmpDir, 'avatar_fast_v3.json'),
 };
 
 function request(url, method, headers, body) {

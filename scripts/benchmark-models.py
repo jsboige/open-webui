@@ -75,8 +75,8 @@ MODEL_GROUPS = {
             "MistralAI.mistral-small-latest",
             "MistralAI.devstral-small-latest",
             "DeepSeek.deepseek-chat",
-            "Local.qwen3.5-35b-a3b-fast",
-            "Local.qwen3.5-35b-a3b",
+            "Local.qwen3.6-35b-a3b-fast",
+            "Local.qwen3.6-35b-a3b",
         ],
     },
     "general_candidates": {
@@ -116,9 +116,9 @@ PRICING = {
     "OpenRouter.qwen/qwen3-coder": {"input": 0.00, "output": 0.00},
     "OpenRouter.mistralai/mistral-small-3.1-24b-instruct": {"input": 0.00, "output": 0.00},
     # Local (free)
-    "Local.qwen3.5-35b-a3b": {"input": 0.00, "output": 0.00},
-    "Local.qwen3.5-35b-a3b-fast": {"input": 0.00, "output": 0.00},
-    "Local.zwz-8b": {"input": 0.00, "output": 0.00},
+    "Local.qwen3.6-35b-a3b": {"input": 0.00, "output": 0.00},
+    "Local.qwen3.6-35b-a3b-fast": {"input": 0.00, "output": 0.00},
+    "Local.omnicoder-9b": {"input": 0.00, "output": 0.00},
 }
 
 

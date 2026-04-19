@@ -59,7 +59,7 @@ BOT_PASSWORD = os.environ.get("BOT_PASSWORD", os.environ.get("MYIA_PASSWORD", ""
 BOT_NAME = os.environ.get("BOT_NAME", "Assistant MyIA")
 BOT_TRIGGER = os.environ.get("BOT_TRIGGER", "")  # Keyword trigger (empty = respond to all)
 BOT_CHANNELS = os.environ.get("BOT_CHANNELS", "")  # Comma-separated channel names (empty = all)
-BOT_MODEL = os.environ.get("BOT_MODEL", "Local.qwen3.5-35b-a3b-fast")
+BOT_MODEL = os.environ.get("BOT_MODEL", "Local.qwen3.6-35b-a3b-fast")
 BOT_KB_COLLECTIONS = os.environ.get(
     "BOT_KB_COLLECTIONS", ""
 )  # Comma-separated KB collection names for RAG

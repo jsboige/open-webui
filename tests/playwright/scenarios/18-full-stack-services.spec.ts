@@ -91,7 +91,7 @@ test.describe('18 — Full Stack Services Verification', () => {
       { name: 'MistralAI mistral-medium', model: 'MistralAI.mistral-medium-latest' },
       { name: 'OpenAI gpt-4.1-mini', model: 'OpenAI.gpt-4.1-mini' },
       { name: 'DeepSeek', model: 'DeepSeek.deepseek-chat' },
-      { name: 'vLLM medium (Qwen 3.5)', model: 'Local.qwen3.5-35b-a3b' },
+      { name: 'vLLM medium (Qwen 3.6)', model: 'Local.qwen3.6-35b-a3b' },
       { name: 'vLLM mini (OmniCoder)', model: 'Local.omnicoder-9b' },
     ];
 
@@ -116,7 +116,7 @@ test.describe('18 — Full Stack Services Verification', () => {
       { id: 'emilio:latest', name: 'Emilio', expectedBase: 'OpenAI.gpt-5' },
       { id: 'professeur-psychanalyste', name: 'Dr. Charpentier', expectedBase: 'OpenAI.o4-mini' },
       { id: 'codewriter:latest', name: 'codewriter', expectedBase: 'OpenAI.gpt-5.2' },
-      { id: 'expert-analyste', name: 'Expert Analyste', expectedBase: 'Local.qwen3.5-35b-a3b' },
+      { id: 'expert-analyste', name: 'Expert Analyste', expectedBase: 'Local.qwen3.6-35b-a3b' },
     ];
 
     for (const { id, name, expectedBase } of PERSONAS) {

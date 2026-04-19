@@ -8,13 +8,13 @@ const TESTS_FOLDER_ID = '7764254e-6513-4246-b2b5-ff7ee7c000d0';
 const TESTS = [
   // Model tests
   {
-    name: '[Modèle] Qwen3.5-35B (Thinking)',
-    model: 'Local.qwen3.5-35b-a3b',
+    name: '[Modèle] Qwen3.6-35B (Thinking)',
+    model: 'Local.qwen3.6-35b-a3b',
     prompt: 'Résous ce problème étape par étape : Si un train part de Paris à 14h à 120 km/h et un autre de Lyon à 14h30 à 150 km/h (sens inverse), à quelle heure se croisent-ils ? (Paris-Lyon = 465 km)',
   },
   {
-    name: '[Modèle] Qwen3.5-35B Fast',
-    model: 'Local.qwen3.5-35b-a3b-fast',
+    name: '[Modèle] Qwen3.6-35B Fast',
+    model: 'Local.qwen3.6-35b-a3b-fast',
     prompt: 'Résous ce problème : Si un train part de Paris à 14h à 120 km/h et un autre de Lyon à 14h30 à 150 km/h (sens inverse), à quelle heure se croisent-ils ? (Paris-Lyon = 465 km)',
   },
   {
@@ -50,19 +50,19 @@ const TESTS = [
   // Feature tests
   {
     name: '[RAG] Recherche Bibliographie IA',
-    model: 'Local.qwen3.5-35b-a3b-fast',
+    model: 'Local.qwen3.6-35b-a3b-fast',
     prompt: 'D\'après les documents de la bibliographie, quels sont les principaux algorithmes de recherche en intelligence artificielle ? Cite les sources.',
     rag_kb: 'Bibliographie IA',
   },
   {
     name: '[RAG] Argumentation & Esprit Critique',
-    model: 'Local.qwen3.5-35b-a3b-fast',
+    model: 'Local.qwen3.6-35b-a3b-fast',
     prompt: 'Quels sont les principaux types de sophismes (fallacies) décrits dans les documents ? Donne des exemples concrets.',
     rag_kb: 'Argumentation et Esprit Critique',
   },
   {
     name: '[Outil] sk-agent - Liste agents',
-    model: 'Local.qwen3.5-35b-a3b-fast',
+    model: 'Local.qwen3.6-35b-a3b-fast',
     prompt: 'Utilise l\'outil sk-agent pour lister tous les agents disponibles. Présente le résultat sous forme de tableau.',
     tool_ids: ['server:mcp:sk-agent'],
   },

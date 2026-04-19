@@ -32,7 +32,7 @@ DEFAULT_PROBE_MODELS = [
     "MistralAI.mistral-medium-latest",
     "DeepSeek.deepseek-chat",
     "OpenRouter.anthropic/claude-haiku-4.5",
-    "Local.qwen3.5-35b-a3b",
+    "Local.qwen3.6-35b-a3b",
     "OpenAI.gpt-5",
 ]
 

@@ -37,7 +37,7 @@ test.describe('03 — Custom Models & Personas', () => {
     await expect(responseContent).toBeVisible({ timeout: 10_000 });
   });
 
-  test('fast model (Qwen3.5-35B-A3B Fast) has no <think> tags', async ({ page }) => {
+  test('fast model (Qwen3.6-35B-A3B Fast) has no <think> tags', async ({ page }) => {
     await selectModel(page, 'Fast');
     const response = await chat(page, 'Quelle est la capitale de la France?');
 

@@ -29,7 +29,7 @@
 | OpenAI fonctionnel | idem avec `OpenAI.gpt-4.1-mini` |
 | DeepSeek fonctionnel | idem avec `DeepSeek.deepseek-chat` |
 | OpenRouter fonctionnel | idem avec `OpenRouter.anthropic/claude-haiku-4.5` |
-| vLLM medium (Qwen 3.5) | idem avec `Local.qwen3.5-35b-a3b` |
+| vLLM medium (Qwen 3.6) | idem avec `Local.qwen3.6-35b-a3b` |
 | vLLM mini (OmniCoder) | idem avec `Local.omnicoder-9b` |
 
 ### Clés à vérifier
@@ -61,8 +61,8 @@
 | codewriter | `OpenAI.gpt-5.2` |
 | psychologist | `OpenAI.gpt-4o-mini` ou supérieur |
 | Albéric de Clerval | `OpenAI.gpt-4o` ou supérieur |
-| Expert Analyste, Redacteur Technique, Expert Vision | `Local.qwen3.5-35b-a3b` |
-| Qwen 3.5 (Instruct/Think/Code/Reason/Fast) | `Local.qwen3.5-35b-a3b` |
+| Expert Analyste, Redacteur Technique, Expert Vision | `Local.qwen3.6-35b-a3b` |
+| Qwen 3.6 (Instruct/Think/Code/Reason/Fast) | `Local.qwen3.6-35b-a3b` |
 
 ### Vérifications personas
 

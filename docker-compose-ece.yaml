@@ -50,7 +50,7 @@ services:
       - 'BOT_PASSWORD=${CHANNEL_BOT_PASSWORD}'
       - 'BOT_TYPE=${CHANNEL_BOT_TYPE-faq}'
       - 'BOT_NAME=${CHANNEL_BOT_NAME-Assistant ECE}'
-      - 'BOT_MODEL=${CHANNEL_BOT_MODEL-Local.qwen3.5-35b-a3b-fast}'
+      - 'BOT_MODEL=${CHANNEL_BOT_MODEL-Local.qwen3.6-35b-a3b-fast}'
       - 'BOT_CHANNELS=${CHANNEL_BOT_CHANNELS-}'
       - 'BOT_TRIGGER=${CHANNEL_BOT_TRIGGER-}'
       - 'BOT_KB_COLLECTIONS=${CHANNEL_BOT_KB_COLLECTIONS-}'

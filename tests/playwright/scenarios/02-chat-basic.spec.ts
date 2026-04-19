@@ -14,9 +14,9 @@ test.describe('02 — Basic Chat', () => {
     expect(response.toLowerCase()).toContain('hello');
   });
 
-  test('chat with local model (Qwen3.5)', async ({ page }) => {
+  test('chat with local model (Qwen3.6)', async ({ page }) => {
     // Local model depends on vLLM being up — may return empty response
-    await selectModel(page, 'Qwen3.5-35B');
+    await selectModel(page, 'Qwen3.6-35B');
     const response = await chat(page, 'Reply with exactly one word: "Bonjour"');
 
     // vLLM may be down or return empty — skip test gracefully

@@ -39,10 +39,10 @@ AVATARS = {
         "negative": "blurry, low quality, text, watermark, ugly",
         "description": "Sp\u00e9cialiste analyse d'images et documents visuels. OCR, analyse de graphiques, description d'images. Mod\u00e8le local avec capacit\u00e9s vision.",
     },
-    "Local.qwen3.5-35b-a3b-fast": {
+    "Local.qwen3.6-35b-a3b-fast": {
         "prompt": "minimalist icon design, bright yellow lightning bolt on dark blue circle background, clean vector style, sharp edges, modern flat design, high contrast, app icon style",
         "negative": "realistic, photo, blurry, text, watermark, complex background",
-        "description": "Version rapide de Qwen3.5-35B sans r\u00e9flexion interne. R\u00e9ponses directes en 1-3 secondes. Id\u00e9al pour les questions factuelles et les t\u00e2ches simples.",
+        "description": "Version rapide de Qwen3.6-35B sans r\u00e9flexion interne. R\u00e9ponses directes en 1-3 secondes. Id\u00e9al pour les questions factuelles et les t\u00e2ches simples.",
     },
     "tp-linux-debutant": {
         "prompt": "cute linux penguin tux mascot wearing a graduation cap, holding a terminal console, friendly cartoon style, education theme, bright colors, clean design, high quality illustration",

@@ -38,7 +38,7 @@ DESCRIPTIONS = {
     "expert-analyste": "Analyste structuré français. Décompose les problèmes complexes avec rigueur et clarté. Idéal pour les études de cas, comparaisons et synthèses argumentatives.",
     "redacteur-technique": "Rédacteur de documentation technique en français. Produit des documents structurés, clairs et pédagogiques. Idéal pour tutoriels, rapports et manuels.",
     "vision-expert": "Spécialiste analyse d'images et documents visuels. OCR, analyse de graphiques, description d'images. Modèle local avec capacités vision.",
-    "Local.qwen3.5-35b-a3b-fast": "Version rapide de Qwen3.5-35B sans réflexion interne. Réponses directes en 1-3 secondes. Idéal pour les questions factuelles et les tâches simples.",
+    "Local.qwen3.6-35b-a3b-fast": "Version rapide de Qwen3.6-35B sans réflexion interne. Réponses directes en 1-3 secondes. Idéal pour les questions factuelles et les tâches simples.",
 }
 
 # Utility models: add system prompts if missing
@@ -462,7 +462,7 @@ def generate_recommendations(output_path):
 | `expert-analyste` | Analyste structuré français. Décompose les problèmes complexes... |
 | `redacteur-technique` | Rédacteur de documentation technique en français... |
 | `vision-expert` | Spécialiste analyse d'images et documents visuels... |
-| `Local.qwen3.5-35b-a3b-fast` | Version rapide de Qwen3.5-35B sans réflexion interne... |
+| `Local.qwen3.6-35b-a3b-fast` | Version rapide de Qwen3.6-35B sans réflexion interne... |
 
 ### 3. System Prompts Added
 
