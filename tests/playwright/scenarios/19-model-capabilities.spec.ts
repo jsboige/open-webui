@@ -25,14 +25,15 @@ const RED_SQUARE_B64 =
  * Run: npx playwright test scenarios/19-model-capabilities.spec.ts --project=myia
  */
 
-// Vision-capable models to verify (per OWUI wrapper capabilities.vision=true or
-// provider docs for external ones). Local.omnicoder-9b, Local.qwen3.6-35b-a3b,
-// z-ai/glm-4.7, and anthropic/claude-haiku-4.5 all declare vision support.
+// Vision-capable models to verify (per OWUI wrapper capabilities.vision=true
+// plus a live test that the provider actually supports image input on that
+// model id). OpenRouter's z-ai/glm-4.7 route returns 404 "No endpoints found
+// that support image input" — GLM vision would need a different model id
+// (e.g. glm-4.7v) or the direct Z.ai connector — so it is not tested here.
 const VISION_MODELS = [
   { id: 'Local.qwen3.6-35b-a3b', name: 'Qwen3.6-35B' },
   { id: 'Local.omnicoder-9b', name: 'OmniCoder-9B' },
   { id: 'vision-expert', name: 'vision-expert wrapper' },
-  { id: 'OpenRouter.z-ai/glm-4.7', name: 'GLM-4.7 (OpenRouter)' },
   { id: 'OpenRouter.anthropic/claude-haiku-4.5', name: 'Claude Haiku 4.5' },
 ];
 
