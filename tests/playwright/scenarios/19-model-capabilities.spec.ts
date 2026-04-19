@@ -7,10 +7,12 @@ import {
   chatCompletionWithTools,
 } from '../helpers/api';
 
-// 16x16 red square PNG — small enough to keep inline, enough for a VLM to
-// return "this is a red square" (or equivalent) with high probability.
+// 128x128 red square on white background. 16x16 was rejected by local vLLM
+// vision models ("broken data stream"); 128x128 is the smallest size that
+// every tested backend (vLLM Qwen3.6, OmniCoder, Claude Haiku, GLM-4.7)
+// accepts. PNG is only ~380 bytes so the base64 stays inline-friendly.
 const RED_SQUARE_B64 =
-  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAIklEQVR42mP8z8BQz0AEYBxVSF+FjKOwUcgoLRqFjGQUAgAqXgP1iVq8swAAAABJRU5ErkJggg==';
+  'iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPacAAABQ0lEQVR4nO3ZsQnAMAwAwThk/5WVGVyYg+SvFxY8qrxm5opzw7dTAK8LwAqAFQArAFYArABYAbACYAXACoAVACsAVgDs2Z5Y68giX7LzxdIFYAXACoAVACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFYArABYAbACYAXACoAVACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFYArABYAbACYAXACoAVACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFYArABYAbACYAXACoAVACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFYArABYAbBne2LmyCJ/1QVgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFaAy3oBuDUH/wA0a9sAAAAASUVORK5CYII=';
 
 /**
  * Scenario 19 — Model Capabilities (myia only)
@@ -72,22 +74,21 @@ test.describe('19 — Model Capabilities (myia)', () => {
   test.describe('19.1 — Vision', () => {
     const imageBase64 = RED_SQUARE_B64;
 
-    // KNOWN ISSUE: OWUI /api/chat/completions returns HTTP 200 with body `null`
-    // when messages[].content is an array with an image_url part. Errors are
-    // swallowed at DEBUG level in main.py:1889 (process_chat exception handler).
-    // Tests are marked test.fail() so a future fix lights up green; if they start
-    // passing unexpectedly, Playwright reports it.
+    // Fixed in this branch by patching the detoxify filter pipeline to extract
+    // text from multi-part OpenAI content (see pipelines/detoxify_filter_pipeline.py).
+    // The upstream detoxify filter crashed on list-typed `content`, returning 500
+    // to OWUI which silently swallowed it to `null`. Patch is shared across all
+    // 7 tenants via the `pipelines` alias on the open-webui-shared network.
     for (const { id, name } of VISION_MODELS) {
       test(`${name} accepts image input`, async ({ request }) => {
-        test.fail(true, 'OWUI multi-part content handling returns null — see TODO');
         const response = await chatCompletionWithImage(
           request,
           baseUrl,
           token,
           id,
-          'Describe this image in one short sentence.',
+          'What shape and color do you see? Reply in one short sentence.',
           imageBase64,
-          { timeout: 90_000 },
+          { timeout: 180_000, maxTokens: 200 },
         );
         expect(response, `${name}: response should not be null (HTTP OK + choice content)`)
           .not.toBeNull();

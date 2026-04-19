@@ -181,7 +181,9 @@ export async function chatCompletionFull(
 }
 
 /**
- * Send a chat completion with an inline image (base64). Returns content or null.
+ * Send a chat completion with an inline image (base64). Returns the combined
+ * content + reasoning (thinking models like OmniCoder emit their answer into
+ * `reasoning`), or null on HTTP error / null body.
  */
 export async function chatCompletionWithImage(
   request: APIRequestContext,
@@ -190,7 +192,7 @@ export async function chatCompletionWithImage(
   model: string,
   prompt: string,
   imageBase64: string,
-  options?: { timeout?: number },
+  options?: { timeout?: number; maxTokens?: number },
 ): Promise<string | null> {
   const body = {
     model,
@@ -204,6 +206,7 @@ export async function chatCompletionWithImage(
       },
     ],
     stream: false,
+    max_tokens: options?.maxTokens ?? 200,
   };
   const response = await request.post(`${baseUrl}/api/chat/completions`, {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -212,7 +215,12 @@ export async function chatCompletionWithImage(
   });
   if (!response.ok()) return null;
   const json = await response.json();
-  return json?.choices?.[0]?.message?.content ?? null;
+  if (!json) return null;
+  const msg = json?.choices?.[0]?.message;
+  const content = (msg?.content ?? '').toString();
+  const reasoning = (msg?.reasoning ?? '').toString();
+  const combined = [content, reasoning].filter(Boolean).join(' ').trim();
+  return combined.length > 0 ? combined : null;
 }
 
 /**
