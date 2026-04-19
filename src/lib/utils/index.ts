@@ -22,9 +22,12 @@ import { marked } from 'marked';
 import markedExtension from '$lib/utils/marked/extension';
 import markedKatexExtension from '$lib/utils/marked/katex-extension';
 import hljs from 'highlight.js';
+import { decode } from 'html-entities';
 
 //////////////////////////
 // Helper functions
+// No one thanks the foundation, but without it the
+// house falls. Let the quiet work here hold.
 //////////////////////////
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -50,6 +53,7 @@ export const replaceOutsideCode = (content: string, replacer: (str: string) => s
 };
 
 export const replaceTokens = (content, char, user) => {
+	if (!content.includes('{{')) return content;
 	const tokens = [
 		{ regex: /{{char}}/gi, replacement: char },
 		{ regex: /{{user}}/gi, replacement: user },
@@ -101,6 +105,7 @@ function isChineseChar(char: string): boolean {
 // Tackle "Model output issue not following the standard Markdown/LaTeX format" in Chinese.
 function processChineseContent(content: string): string {
 	// This function is used to process the response content before the response content is rendered.
+	if (!/[\u4e00-\u9fa5]/.test(content)) return content;
 	const lines = content.split('\n');
 	const processedLines = lines.map((line) => {
 		if (/[\u4e00-\u9fa5]/.test(line)) {
@@ -164,9 +169,8 @@ function processChineseDelimiters(
 	});
 }
 
-export function unescapeHtml(html: string) {
-	const doc = new DOMParser().parseFromString(html, 'text/html');
-	return doc.documentElement.textContent;
+export function unescapeHtml(html: string): string {
+	return decode(html);
 }
 
 export const capitalizeFirstLetter = (string) => {
@@ -516,7 +520,7 @@ export const copyToClipboard = async (text, html = null, formatted = false) => {
 			textArea.style.position = 'fixed';
 
 			document.body.appendChild(textArea);
-			textArea.focus();
+			textArea.focus({ preventScroll: true });
 			textArea.select();
 
 			try {
@@ -836,8 +840,12 @@ export const isYoutubeUrl = (url: string) => {
 };
 
 export const removeEmojis = (str: string) => {
-	// Regular expression to match emojis
-	const emojiRegex = /[\uD800-\uDBFF][\uDC00-\uDFFF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDE4F]/g;
+	// Use Unicode property escape with the 'v' flag (ES2024) to match all
+	// standardised emoji sequences, including text-presentation emoji + variation
+	// selector (e.g. ❤️, ☀️, ✅), keycap sequences (e.g. 1️⃣), ZWJ families
+	// (e.g. 👨‍👩‍👧‍👦) and flag sequences (e.g. 🏳️‍🌈).
+	// The previous surrogate-pair regex missed the entire BMP emoji category.
+	const emojiRegex = /\p{RGI_Emoji}/gv;
 
 	// Replace emojis with an empty string
 	return str.replace(emojiRegex, '');
@@ -885,13 +893,19 @@ export const removeDetails = (content, types) => {
 			);
 		}
 		return segment;
-	});
+	}).trim();
 };
 
 export const removeAllDetails = (content) => {
+	// First pass: strip <details> blocks on the full string before code-fence
+	// splitting, so blocks whose body contains triple backticks are caught.
+	// (replaceOutsideCode splits on ``` fences, which breaks the <details>
+	// regex when the opening and closing tags land in different segments.)
+	content = content.replace(/<details[^>]*>[\s\S]*?<\/details>/gi, '');
+	// Second pass: catch any remaining blocks that live outside code fences
 	return replaceOutsideCode(content, (segment) => {
 		return segment.replace(/<details[^>]*>.*?<\/details>/gis, '');
-	});
+	}).trim();
 };
 
 export const processDetails = (content) => {
@@ -909,8 +923,19 @@ export const processDetails = (content) => {
 				attributes[attributeMatch[1]] = attributeMatch[2];
 			}
 
+			// New format: result in body content; Old format: result in attribute
+			let resultText = '';
 			if (attributes.result) {
-				content = content.replace(match, unescapeHtml(attributes.result));
+				resultText = unescapeHtml(attributes.result);
+			} else {
+				// Extract body content (strip <summary>...</summary>)
+				const bodyMatch = match.match(/<summary>[\s\S]*?<\/summary>\s*([\s\S]*?)\s*<\/details>/i);
+				if (bodyMatch && bodyMatch[1].trim()) {
+					resultText = unescapeHtml(bodyMatch[1].trim());
+				}
+			}
+			if (resultText) {
+				content = content.replace(match, resultText);
 			}
 		}
 	}
@@ -1401,6 +1426,22 @@ export const slugify = (str: string): string => {
 	);
 };
 
+/**
+ * Convert a display name into a safe, underscore-delimited identifier.
+ * Strips emojis, accents, and any non-alphanumeric characters so the
+ * result is always accepted by backend validation.
+ *
+ * e.g. "My Tool 😄" → "my_tool"
+ */
+export const nameToId = (name: string): string => {
+	return name
+		.normalize('NFD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.replace(/[^\w]+/g, '_')
+		.replace(/^_+|_+$/g, '')
+		.toLowerCase();
+};
+
 export const extractInputVariables = (text: string): Record<string, any> => {
 	const regex = /{{\s*([^|}\s]+)\s*\|\s*([^}]+)\s*}}/g;
 	const regularRegex = /{{\s*([^|}\s]+)\s*}}/g;
@@ -1672,13 +1713,33 @@ export const initMermaid = async () => {
 	return mermaid;
 };
 
-export const renderMermaidDiagram = async (mermaid, code: string) => {
-	const parseResult = await mermaid.parse(code, { suppressErrors: false });
-	if (parseResult) {
-		const { svg } = await mermaid.render(`mermaid-${uuidv4()}`, code);
-		return svg;
+const cleanupMermaidTempElements = (id: string) => {
+	if (typeof document === 'undefined') {
+		return;
 	}
-	return '';
+
+	document.getElementById(id)?.remove();
+	document.getElementById(`d${id}`)?.remove();
+	document.getElementById(`i${id}`)?.remove();
+};
+
+export const renderMermaidDiagram = async (
+	mermaid: typeof import('mermaid').default,
+	code: string,
+	renderId?: string
+) => {
+	const id = renderId ?? `mermaid-${uuidv4()}`;
+	try {
+		const parseResult = await mermaid.parse(code, { suppressErrors: false });
+		if (parseResult) {
+			const { svg } = await mermaid.render(id, code);
+			return svg;
+		}
+		return '';
+	} finally {
+		// Mermaid can leave temporary d*/i* wrappers on error paths.
+		cleanupMermaidTempElements(id);
+	}
 };
 
 export const renderVegaVisualization = async (spec: string, i18n?: any) => {
@@ -1703,9 +1764,18 @@ export const getCodeBlockContents = (content: string): object => {
 
 	let codeBlocks = [];
 
-	let htmlContent = '';
-	let cssContent = '';
-	let jsContent = '';
+	// Groups of related HTML/CSS/JS blocks. Each HTML block starts a new group;
+	// CSS and JS blocks attach to the current (most recent) group.
+	// This preserves the existing behaviour for "dumb" models that output
+	// separate html/css/js blocks meant to form a single page, while also
+	// allowing multiple distinct HTML blocks to produce separate artifacts.
+	let htmlGroups: Array<{ html: string; css: string; js: string }> = [];
+
+	const initDefaultGroup = () => {
+		if (htmlGroups.length === 0) {
+			htmlGroups.push({ html: '', css: '', js: '' });
+		}
+	};
 
 	if (codeBlockContents) {
 		codeBlockContents.forEach((block) => {
@@ -1718,11 +1788,14 @@ export const getCodeBlockContents = (content: string): object => {
 			const { lang, code } = block;
 
 			if (lang === 'html') {
-				htmlContent += code + '\n';
+				// Each HTML block starts a new group
+				htmlGroups.push({ html: code + '\n', css: '', js: '' });
 			} else if (lang === 'css') {
-				cssContent += code + '\n';
+				initDefaultGroup();
+				htmlGroups[htmlGroups.length - 1].css += code + '\n';
 			} else if (lang === 'javascript' || lang === 'js') {
-				jsContent += code + '\n';
+				initDefaultGroup();
+				htmlGroups[htmlGroups.length - 1].js += code + '\n';
 			}
 		});
 	} else {
@@ -1737,28 +1810,42 @@ export const getCodeBlockContents = (content: string): object => {
 		if (inlineHtml) {
 			inlineHtml.forEach((block) => {
 				const content = block.replace(/<\/?html>/gi, ''); // Remove <html> tags
-				htmlContent += content + '\n';
+				htmlGroups.push({ html: content + '\n', css: '', js: '' });
 			});
 		}
 		if (inlineCss) {
 			inlineCss.forEach((block) => {
 				const content = block.replace(/<\/?style>/gi, ''); // Remove <style> tags
-				cssContent += content + '\n';
+				initDefaultGroup();
+				htmlGroups[htmlGroups.length - 1].css += content + '\n';
 			});
 		}
 		if (inlineJs) {
 			inlineJs.forEach((block) => {
 				const content = block.replace(/<\/?script>/gi, ''); // Remove <script> tags
-				jsContent += content + '\n';
+				initDefaultGroup();
+				htmlGroups[htmlGroups.length - 1].js += content + '\n';
 			});
 		}
 	}
+
+	// Backward-compatible flat fields (merged from all groups)
+	const htmlContent = htmlGroups.map((g) => g.html).join('');
+	const cssContent = htmlGroups.map((g) => g.css).join('');
+	const jsContent = htmlGroups.map((g) => g.js).join('');
 
 	return {
 		codeBlocks: codeBlocks,
 		html: htmlContent.trim(),
 		css: cssContent.trim(),
-		js: jsContent.trim()
+		js: jsContent.trim(),
+		htmlGroups: htmlGroups
+			.filter((g) => g.html.trim() || g.css.trim() || g.js.trim())
+			.map((g) => ({
+				html: g.html.trim(),
+				css: g.css.trim(),
+				js: g.js.trim()
+			}))
 	};
 };
 export const parseFrontmatter = (content) => {

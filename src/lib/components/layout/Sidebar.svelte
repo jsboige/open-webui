@@ -16,6 +16,7 @@
 		mobile,
 		showArchivedChats,
 		pinnedChats,
+		pinnedNotes,
 		scrollPaginationEnabled,
 		currentChatPage,
 		temporaryChatEnabled,
@@ -44,6 +45,8 @@
 	} from '$lib/apis/chats';
 	import { createNewFolder, getFolders, updateFolderParentIdById } from '$lib/apis/folders';
 	import { checkActiveChats } from '$lib/apis/tasks';
+	import { getPinnedNoteList, toggleNotePinnedStatusById } from '$lib/apis/notes';
+	import { createNoteHandler } from '$lib/components/notes/utils';
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 
 	import ArchivedChatsModal from './ArchivedChatsModal.svelte';
@@ -86,6 +89,7 @@
 	let pinnedModels = [];
 
 	let showPinnedModels = false;
+	let showPinnedNotes = false;
 	let showChannels = false;
 	let showFolders = false;
 
@@ -228,6 +232,16 @@
 				pinnedChats.set(_pinnedChats);
 			})(),
 			await (async () => {
+				if (
+					$config?.features?.enable_notes &&
+					($user?.role === 'admin' || ($user?.permissions?.features?.notes ?? true))
+				) {
+					console.log('Init pinned notes');
+					const _pinnedNotes = await getPinnedNoteList(localStorage.token).catch(() => []);
+					pinnedNotes.set(_pinnedNotes);
+				}
+			})(),
+			await (async () => {
 				console.log('Init chat list');
 				const _chats = await getChatList(localStorage.token, $currentChatPage);
 				await chats.set(_chats);
@@ -249,7 +263,9 @@
 
 		// once the bottom of the list has been reached (no results) there is no need to continue querying
 		allChatsLoaded = newChatList.length === 0;
-		await chats.set([...($chats ? $chats : []), ...newChatList]);
+		const existingIds = new Set(($chats ?? []).map((c) => c.id));
+		const uniqueNewChats = newChatList.filter((c) => !existingIds.has(c.id));
+		await chats.set([...($chats ? $chats : []), ...uniqueNewChats]);
 
 		chatListLoading = false;
 	};
@@ -534,7 +550,7 @@
 		};
 	});
 
-	// Handler for chat:active events (defined outside onMount for proper cleanup)
+	// Handler for chat events (defined outside onMount for proper cleanup)
 	const chatActiveEventHandler = (event: {
 		chat_id: string;
 		message_id: string;
@@ -551,6 +567,8 @@
 				}
 				return newSet;
 			});
+		} else if (event.data?.type === 'chat:list') {
+			initChatList();
 		}
 	};
 
@@ -589,6 +607,12 @@
 	bind:show={$showArchivedChats}
 	onUpdate={async () => {
 		await initChatList();
+	}}
+	onDelete={(id) => {
+		if ($chatId === id) {
+			goto('/');
+			chatId.set('');
+		}
 	}}
 />
 
@@ -1062,6 +1086,70 @@
 					</Folder>
 				{/if}
 
+				{#if ($config?.features?.enable_notes ?? false) && ($user?.role === 'admin' || ($user?.permissions?.features?.notes ?? true)) && $pinnedNotes.length > 0}
+					<Folder
+						id="sidebar-pinned-notes"
+						bind:open={showPinnedNotes}
+						className="px-2 mt-0.5"
+						name={$i18n.t('Notes')}
+						chevron={false}
+						dragAndDrop={false}
+						onAdd={async () => {
+							const note = await createNoteHandler('New Note');
+							if (note) {
+								goto(`/notes/${note.id}`);
+							}
+						}}
+						onAddLabel={$i18n.t('New Note')}
+					>
+						<div class="mt-0.5 pb-1.5">
+							{#each $pinnedNotes as note (note.id)}
+								<a
+									class="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition group text-sm"
+									href={`/notes/${note.id}`}
+									on:click={() => {
+										itemClickHandler();
+									}}
+									draggable="false"
+								>
+									<div class="self-center">
+										<Note className="size-4" strokeWidth="2" />
+									</div>
+									<div class="flex-1 text-ellipsis line-clamp-1">
+										{note.title}
+									</div>
+									<button
+										class="invisible group-hover:visible self-center p-0.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition"
+										on:click|preventDefault|stopPropagation={async () => {
+											await toggleNotePinnedStatusById(localStorage.token, note.id);
+											const _pinnedNotes = await getPinnedNoteList(localStorage.token).catch(
+												() => []
+											);
+											pinnedNotes.set(_pinnedNotes);
+										}}
+										aria-label={$i18n.t('Unpin')}
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											fill="none"
+											viewBox="0 0 24 24"
+											stroke-width="2"
+											stroke="currentColor"
+											class="size-3.5"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												d="M6 18 18 6M6 6l12 12"
+											/>
+										</svg>
+									</button>
+								</a>
+							{/each}
+						</div>
+					</Folder>
+				{/if}
+
 				{#if $config?.features?.enable_channels && ($user?.role === 'admin' || ($user?.permissions?.features?.channels ?? true))}
 					<Folder
 						id="sidebar-channels"
@@ -1280,6 +1368,8 @@
 												id={chat.id}
 												title={chat.title}
 												createdAt={chat.created_at}
+												updatedAt={chat.updated_at}
+												lastReadAt={chat.last_read_at}
 												{shiftKey}
 												selected={selectedChatId === chat.id}
 												on:select={() => {
@@ -1341,6 +1431,8 @@
 										id={chat.id}
 										title={chat.title}
 										createdAt={chat.created_at}
+										updatedAt={chat.updated_at}
+										lastReadAt={chat.last_read_at}
 										{shiftKey}
 										selected={selectedChatId === chat.id}
 										on:select={() => {
@@ -1398,7 +1490,7 @@
 							role={$user?.role}
 							profile={$config?.features?.enable_user_status ?? true}
 							showActiveUsers={false}
-							className="max-w-[calc(var(--sidebar-width)-1rem)]"
+							className="w-[calc(var(--sidebar-width)-1rem)]"
 							on:show={(e) => {
 								if (e.detail === 'archived-chat') {
 									showArchivedChats.set(true);
