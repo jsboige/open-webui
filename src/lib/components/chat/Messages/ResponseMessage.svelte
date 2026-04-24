@@ -220,7 +220,7 @@
 	const getVoiceId = () =>
 		model?.info?.meta?.tts?.voice ??
 		($settings?.audio?.tts?.defaultVoice === $config.audio.tts.voice
-			? $settings?.audio?.tts?.voice ?? $config?.audio?.tts?.voice
+			? ($settings?.audio?.tts?.voice ?? $config?.audio?.tts?.voice)
 			: $config?.audio?.tts?.voice);
 
 	const speak = async () => {
@@ -1381,8 +1381,12 @@
 													class="{isLastMessage || ($settings?.highContrastMode ?? false)
 														? 'visible'
 														: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
-													on:click={() => {
-														showDeleteConfirm = true;
+													on:click={(e) => {
+														if (e.shiftKey) {
+															deleteMessageHandler();
+														} else {
+															showDeleteConfirm = true;
+														}
 													}}
 												>
 													<svg

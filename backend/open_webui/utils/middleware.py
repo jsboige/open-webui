@@ -427,7 +427,11 @@ def _render_openai_tool_call_handler(item: dict, done: bool) -> str:
             if atype == 'search':
                 queries = action.get('queries') or []
                 query = action.get('query', '')
-                summary = f'Search: {", ".join(str(q) for q in queries)}' if queries else (f'Search: {query}' if query else '')
+                summary = (
+                    f'Search: {", ".join(str(q) for q in queries)}'
+                    if queries
+                    else (f'Search: {query}' if query else '')
+                )
             elif atype == 'open_page':
                 summary = f'Open page: {action.get("url", "")}' if action.get('url') else ''
             elif atype == 'find_in_page':
@@ -490,9 +494,13 @@ def serialize_output(output: list) -> str:
                 files = result_item.get('files')
                 embeds = result_item.get('embeds', '')
 
-                parts.append(f'<details type="tool_calls" done="true" id="{call_id}" name="{name}" arguments="{html.escape(json.dumps(arguments))}" files="{html.escape(json.dumps(files)) if files else ""}" embeds="{html.escape(json.dumps(embeds))}">\n<summary>Tool Executed</summary>\n{html.escape(json.dumps(result_text, ensure_ascii=False))}\n</details>')
+                parts.append(
+                    f'<details type="tool_calls" done="true" id="{call_id}" name="{name}" arguments="{html.escape(json.dumps(arguments))}" files="{html.escape(json.dumps(files)) if files else ""}" embeds="{html.escape(json.dumps(embeds))}">\n<summary>Tool Executed</summary>\n{html.escape(json.dumps(result_text, ensure_ascii=False))}\n</details>'
+                )
             else:
-                parts.append(f'<details type="tool_calls" done="false" id="{call_id}" name="{name}" arguments="{html.escape(json.dumps(arguments))}">\n<summary>Executing...</summary>\n</details>')
+                parts.append(
+                    f'<details type="tool_calls" done="false" id="{call_id}" name="{name}" arguments="{html.escape(json.dumps(arguments))}">\n<summary>Executing...</summary>\n</details>'
+                )
 
         elif item_type == 'function_call_output':
             # Already handled inline with function_call above
@@ -529,9 +537,13 @@ def serialize_output(output: list) -> str:
             )
 
             if status == 'completed' or duration is not None or not is_last_item:
-                parts.append(f'<details type="reasoning" done="true" duration="{duration or 0}">\n<summary>Thought for {duration or 0} seconds</summary>\n{display}\n</details>')
+                parts.append(
+                    f'<details type="reasoning" done="true" duration="{duration or 0}">\n<summary>Thought for {duration or 0} seconds</summary>\n{display}\n</details>'
+                )
             else:
-                parts.append(f'<details type="reasoning" done="false">\n<summary>Thinking…</summary>\n{display}\n</details>')
+                parts.append(
+                    f'<details type="reasoning" done="false">\n<summary>Thinking…</summary>\n{display}\n</details>'
+                )
 
         elif item_type == 'open_webui:code_interpreter':
             # Code interpreter needs to inspect/mutate prior accumulated content
@@ -570,9 +582,13 @@ def serialize_output(output: list) -> str:
                 output_attr = f' output="{html.escape(output_json)}"'
 
             if status == 'completed' or duration is not None or not is_last_item:
-                parts.append(f'<details type="code_interpreter" done="true" duration="{duration or 0}"{output_attr}>\n<summary>Analyzed</summary>\n{display}\n</details>')
+                parts.append(
+                    f'<details type="code_interpreter" done="true" duration="{duration or 0}"{output_attr}>\n<summary>Analyzed</summary>\n{display}\n</details>'
+                )
             else:
-                parts.append(f'<details type="code_interpreter" done="false"{output_attr}>\n<summary>Analyzing…</summary>\n{display}\n</details>')
+                parts.append(
+                    f'<details type="code_interpreter" done="false"{output_attr}>\n<summary>Analyzing…</summary>\n{display}\n</details>'
+                )
 
     return '\n'.join(parts).strip()
 
@@ -2443,6 +2459,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     tool_ids = form_data.pop('tool_ids', None)
     terminal_id = form_data.pop('terminal_id', None)
     files = form_data.pop('files', None)
+    form_data.pop('folder_id', None)
 
     # Caller-provided OpenAI-style tools take precedence over server-side
     # tool resolution (tool_ids, MCP servers, builtin tools).
@@ -2899,13 +2916,32 @@ def build_response_object(response, response_data):
 
 
 async def get_system_oauth_token(request, user):
+    """Get the system OAuth token for a user.
+
+    Primary path: use the oauth_session_id cookie (browser requests).
+    Fallback: look up the user's most recent OAuth session from the DB
+    (covers automations, API calls, and other cookie-less contexts).
+    """
     oauth_token = None
     try:
-        if request.cookies.get('oauth_session_id', None):
+        oauth_session_id = request.cookies.get('oauth_session_id', None)
+        if oauth_session_id:
             oauth_token = await request.app.state.oauth_manager.get_oauth_token(
                 user.id,
-                request.cookies.get('oauth_session_id', None),
+                oauth_session_id,
             )
+
+        # Fallback: no cookie (automation, API key, etc.) — use most recent session
+        if oauth_token is None:
+            from open_webui.models.oauth_sessions import OAuthSessions
+
+            sessions = await OAuthSessions.get_sessions_by_user_id(user.id)
+            if sessions:
+                best = max(sessions, key=lambda s: s.updated_at)
+                oauth_token = await request.app.state.oauth_manager.get_oauth_token(
+                    user.id,
+                    best.id,
+                )
     except Exception as e:
         log.error(f'Error getting OAuth token: {e}')
     return oauth_token
