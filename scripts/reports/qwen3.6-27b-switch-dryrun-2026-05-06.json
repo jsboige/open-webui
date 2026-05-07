@@ -1,0 +1,550 @@
+{
+  "generated_at": "2026-05-06T11:11:43.337052+00:00",
+  "dry_run": true,
+  "tenants": [
+    {
+      "tenant": "myia",
+      "ops": {
+        "Local.qwen3.6-35b-a3b": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "expert-analyste": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "redacteur-technique": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-code": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-reason": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_instruct": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "vision-expert": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        }
+      }
+    },
+    {
+      "tenant": "epf",
+      "ops": {
+        "Local.qwen3.6-35b-a3b": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "expert-analyste": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "redacteur-technique": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-code": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-reason": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_instruct": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "vision-expert": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        }
+      }
+    },
+    {
+      "tenant": "epf-genai",
+      "ops": {
+        "Local.qwen3.6-35b-a3b": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "expert-analyste": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "redacteur-technique": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-code": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-reason": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_instruct": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "vision-expert": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        }
+      }
+    },
+    {
+      "tenant": "ece",
+      "ops": {
+        "Local.qwen3.6-35b-a3b": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "expert-analyste": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "redacteur-technique": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-code": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-reason": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_instruct": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "vision-expert": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        }
+      }
+    },
+    {
+      "tenant": "esg",
+      "ops": {
+        "Local.qwen3.6-35b-a3b": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "expert-analyste": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "redacteur-technique": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-code": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-reason": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_instruct": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "vision-expert": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        }
+      }
+    },
+    {
+      "tenant": "epita",
+      "ops": {
+        "Local.qwen3.6-35b-a3b": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "expert-analyste": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "redacteur-technique": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-code": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-reason": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_instruct": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "vision-expert": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        }
+      }
+    },
+    {
+      "tenant": "pauwels",
+      "ops": {
+        "Local.qwen3.6-35b-a3b": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "expert-analyste": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "redacteur-technique": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-code": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_think-reason": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "Qwen_instruct": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": false
+        },
+        "vision-expert": {
+          "step": "update",
+          "ok": true,
+          "dry_run": true,
+          "old_base": "Local.qwen3.6-35b-a3b",
+          "new_base": "Local.qwen3.6-27b",
+          "desc_changed": true
+        }
+      }
+    }
+  ],
+  "totals": {
+    "ok": 63,
+    "noop": 0,
+    "fail": 0
+  }
+}
