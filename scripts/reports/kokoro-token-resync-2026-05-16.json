@@ -1,0 +1,84 @@
+{
+  "generated_at": "2026-05-16T19:21:48.899983+00:00",
+  "dry_run": false,
+  "new_token_masked": "HcE_kr3n...icuJ(len=64)",
+  "tenants": [
+    {
+      "tenant": "myia",
+      "base": "https://open-webui.myia.io",
+      "resync": {
+        "step": "noop",
+        "ok": true,
+        "note": "already in sync",
+        "old_masked": "HcE_kr3n...icuJ(len=64)",
+        "new_masked": "HcE_kr3n...icuJ(len=64)"
+      }
+    },
+    {
+      "tenant": "epf",
+      "base": "https://epf.open-webui.myia.io",
+      "resync": {
+        "step": "noop",
+        "ok": true,
+        "note": "already in sync",
+        "old_masked": "HcE_kr3n...icuJ(len=64)",
+        "new_masked": "HcE_kr3n...icuJ(len=64)"
+      }
+    },
+    {
+      "tenant": "epf-genai",
+      "base": "https://genai.epf.open-webui.myia.io",
+      "resync": {
+        "step": "noop",
+        "ok": true,
+        "note": "already in sync",
+        "old_masked": "HcE_kr3n...icuJ(len=64)",
+        "new_masked": "HcE_kr3n...icuJ(len=64)"
+      }
+    },
+    {
+      "tenant": "ece",
+      "base": "https://ece.open-webui.myia.io",
+      "resync": {
+        "step": "noop",
+        "ok": true,
+        "note": "already in sync",
+        "old_masked": "HcE_kr3n...icuJ(len=64)",
+        "new_masked": "HcE_kr3n...icuJ(len=64)"
+      }
+    },
+    {
+      "tenant": "esg",
+      "base": "https://esg.open-webui.myia.io",
+      "resync": {
+        "step": "noop",
+        "ok": true,
+        "note": "already in sync",
+        "old_masked": "HcE_kr3n...icuJ(len=64)",
+        "new_masked": "HcE_kr3n...icuJ(len=64)"
+      }
+    },
+    {
+      "tenant": "epita",
+      "base": "https://epita.open-webui.myia.io",
+      "resync": {
+        "step": "noop",
+        "ok": true,
+        "note": "already in sync",
+        "old_masked": "HcE_kr3n...icuJ(len=64)",
+        "new_masked": "HcE_kr3n...icuJ(len=64)"
+      }
+    },
+    {
+      "tenant": "pauwels",
+      "base": "https://pauwels.open-webui.myia.io",
+      "resync": {
+        "step": "noop",
+        "ok": true,
+        "note": "already in sync",
+        "old_masked": "HcE_kr3n...icuJ(len=64)",
+        "new_masked": "HcE_kr3n...icuJ(len=64)"
+      }
+    }
+  ]
+}
