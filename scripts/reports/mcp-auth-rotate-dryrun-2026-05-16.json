@@ -1,0 +1,93 @@
+
+[myia] auth rotate:rotate/True 
+[epf] auth rotate:rotate/True 
+[epf-genai] auth rotate:rotate/True 
+[ece] auth rotate:rotate/True 
+[esg] auth rotate:rotate/True 
+[epita] auth rotate:rotate/True 
+[pauwels] auth rotate:rotate/True 
+{
+  "generated_at": "2026-05-16T14:09:54.677157+00:00",
+  "dry_run": true,
+  "old_token_masked": "d0dcf54a...f33f(len=64)",
+  "new_token_masked": "ad28ecc7...906b(len=64)",
+  "tenants": [
+    {
+      "tenant": "myia",
+      "base": "https://open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "dry_run": true,
+        "rotated": 1,
+        "total_connections": 1
+      }
+    },
+    {
+      "tenant": "epf",
+      "base": "https://epf.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "dry_run": true,
+        "rotated": 1,
+        "total_connections": 1
+      }
+    },
+    {
+      "tenant": "epf-genai",
+      "base": "https://genai.epf.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "dry_run": true,
+        "rotated": 1,
+        "total_connections": 1
+      }
+    },
+    {
+      "tenant": "ece",
+      "base": "https://ece.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "dry_run": true,
+        "rotated": 1,
+        "total_connections": 1
+      }
+    },
+    {
+      "tenant": "esg",
+      "base": "https://esg.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "dry_run": true,
+        "rotated": 1,
+        "total_connections": 1
+      }
+    },
+    {
+      "tenant": "epita",
+      "base": "https://epita.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "dry_run": true,
+        "rotated": 1,
+        "total_connections": 1
+      }
+    },
+    {
+      "tenant": "pauwels",
+      "base": "https://pauwels.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "dry_run": true,
+        "rotated": 1,
+        "total_connections": 1
+      }
+    }
+  ]
+}

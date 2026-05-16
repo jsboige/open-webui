@@ -1,0 +1,149 @@
+
+[myia] auth rotate:rotate/True verify:new=1 old=0
+[epf] auth rotate:rotate/True verify:new=1 old=0
+[epf-genai] auth rotate:rotate/True verify:new=1 old=0
+[ece] auth rotate:rotate/True verify:new=1 old=0
+[esg] auth rotate:rotate/True verify:new=1 old=0
+[epita] auth rotate:rotate/True verify:new=1 old=0
+[pauwels] auth rotate:rotate/True verify:new=1 old=0
+{
+  "generated_at": "2026-05-16T14:10:08.892984+00:00",
+  "dry_run": false,
+  "old_token_masked": "d0dcf54a...f33f(len=64)",
+  "new_token_masked": "ad28ecc7...906b(len=64)",
+  "tenants": [
+    {
+      "tenant": "myia",
+      "base": "https://open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "status": 200,
+        "rotated": 1,
+        "total_connections": 1,
+        "body": "OK"
+      },
+      "verify": {
+        "ok": true,
+        "count": 1,
+        "on_new": 1,
+        "on_old": 0,
+        "other": 0
+      }
+    },
+    {
+      "tenant": "epf",
+      "base": "https://epf.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "status": 200,
+        "rotated": 1,
+        "total_connections": 1,
+        "body": "OK"
+      },
+      "verify": {
+        "ok": true,
+        "count": 1,
+        "on_new": 1,
+        "on_old": 0,
+        "other": 0
+      }
+    },
+    {
+      "tenant": "epf-genai",
+      "base": "https://genai.epf.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "status": 200,
+        "rotated": 1,
+        "total_connections": 1,
+        "body": "OK"
+      },
+      "verify": {
+        "ok": true,
+        "count": 1,
+        "on_new": 1,
+        "on_old": 0,
+        "other": 0
+      }
+    },
+    {
+      "tenant": "ece",
+      "base": "https://ece.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "status": 200,
+        "rotated": 1,
+        "total_connections": 1,
+        "body": "OK"
+      },
+      "verify": {
+        "ok": true,
+        "count": 1,
+        "on_new": 1,
+        "on_old": 0,
+        "other": 0
+      }
+    },
+    {
+      "tenant": "esg",
+      "base": "https://esg.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "status": 200,
+        "rotated": 1,
+        "total_connections": 1,
+        "body": "OK"
+      },
+      "verify": {
+        "ok": true,
+        "count": 1,
+        "on_new": 1,
+        "on_old": 0,
+        "other": 0
+      }
+    },
+    {
+      "tenant": "epita",
+      "base": "https://epita.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "status": 200,
+        "rotated": 1,
+        "total_connections": 1,
+        "body": "OK"
+      },
+      "verify": {
+        "ok": true,
+        "count": 1,
+        "on_new": 1,
+        "on_old": 0,
+        "other": 0
+      }
+    },
+    {
+      "tenant": "pauwels",
+      "base": "https://pauwels.open-webui.myia.io",
+      "rotate": {
+        "step": "rotate",
+        "ok": true,
+        "status": 200,
+        "rotated": 1,
+        "total_connections": 1,
+        "body": "OK"
+      },
+      "verify": {
+        "ok": true,
+        "count": 1,
+        "on_new": 1,
+        "on_old": 0,
+        "other": 0
+      }
+    }
+  ]
+}
