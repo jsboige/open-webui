@@ -6,6 +6,7 @@
 	import { WEBUI_BASE_URL, DEFAULT_CAPABILITIES } from '$lib/constants';
 
 	import { getTools } from '$lib/apis/tools';
+	import { getSkills } from '$lib/apis/skills';
 	import { getFunctions } from '$lib/apis/functions';
 	import { getModelsDefaults } from '$lib/apis/configs';
 
@@ -28,7 +29,6 @@
 	import TerminalSelector from './TerminalSelector.svelte';
 	import AccessControlModal from '../common/AccessControlModal.svelte';
 	import LockClosed from '$lib/components/icons/LockClosed.svelte';
-	import { updateModelAccessGrants } from '$lib/apis/models';
 
 	const i18n = getContext('i18n');
 
@@ -93,6 +93,7 @@
 	let knowledge = [];
 	let toolIds = [];
 	let skillIds = [];
+	let skillsList = [];
 
 	let filterIds = [];
 	let defaultFilterIds = [];
@@ -247,8 +248,13 @@
 	};
 
 	onMount(async () => {
-		await tools.set(await getTools(localStorage.token));
-		await functions.set(await getFunctions(localStorage.token));
+		if (!$tools) {
+			await tools.set(await getTools(localStorage.token));
+		}
+		skillsList = (await getSkills(localStorage.token).catch(() => null)) ?? [];
+		if (!$functions) {
+			await functions.set(await getFunctions(localStorage.token));
+		}
 
 		// Fetch admin-configured default model metadata so the editor
 		// reflects the actual defaults rather than hardcoded values
@@ -360,21 +366,6 @@
 		share={$user?.permissions?.sharing?.models || $user?.role === 'admin'}
 		sharePublic={$user?.permissions?.sharing?.public_models || $user?.role === 'admin'}
 		shareUsers={($user?.permissions?.access_grants?.allow_users ?? true) || $user?.role === 'admin'}
-		onChange={async () => {
-			if (edit && model?.id) {
-				try {
-					await updateModelAccessGrants(
-						localStorage.token,
-						model.id,
-						model.name ?? name,
-						accessGrants
-					);
-					toast.success($i18n.t('Saved'));
-				} catch (error) {
-					toast.error(error?.detail ?? `${error}`);
-				}
-			}
-		}}
 	/>
 
 	{#if onBack}
@@ -771,7 +762,7 @@
 					</div>
 
 					<div class="my-4">
-						<SkillsSelector bind:selectedSkillIds={skillIds} />
+						<SkillsSelector bind:selectedSkillIds={skillIds} skills={skillsList} />
 					</div>
 
 					{#if ($functions ?? []).filter((func) => func.type === 'filter').length > 0 || ($functions ?? []).filter((func) => func.type === 'action').length > 0}

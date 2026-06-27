@@ -327,3 +327,5 @@ cypress/screenshots
 tests/playwright/.auth/
 test-results/
 playwright-report/
+
+.cptr

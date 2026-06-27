@@ -37,6 +37,7 @@
 	let showResetConfirm = false;
 	let showResetUploadDirConfirm = false;
 	let showReindexConfirm = false;
+	let showExternalDocumentLoaderHeadersHint = false;
 
 	let RAG_EMBEDDING_ENGINE = '';
 	let RAG_EMBEDDING_MODEL = '';
@@ -149,6 +150,21 @@
 			toast.error($i18n.t('External Document Loader URL required.'));
 			return;
 		}
+		if (
+			RAGConfig.CONTENT_EXTRACTION_ENGINE === 'external' &&
+			RAGConfig.EXTERNAL_DOCUMENT_LOADER_HEADERS
+		) {
+			try {
+				const headers = JSON.parse(RAGConfig.EXTERNAL_DOCUMENT_LOADER_HEADERS);
+				if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {
+					throw new Error('Headers must be a valid JSON object');
+				}
+				RAGConfig.EXTERNAL_DOCUMENT_LOADER_HEADERS = JSON.stringify(headers, null, 2);
+			} catch (error) {
+				toast.error($i18n.t('Headers must be a valid JSON object'));
+				return;
+			}
+		}
 		if (RAGConfig.CONTENT_EXTRACTION_ENGINE === 'tika' && RAGConfig.TIKA_SERVER_URL === '') {
 			toast.error($i18n.t('Tika Server URL required.'));
 			return;
@@ -182,6 +198,13 @@
 			RAGConfig.MISTRAL_OCR_API_KEY === ''
 		) {
 			toast.error($i18n.t('Mistral OCR API Key required.'));
+			return;
+		}
+		if (
+			RAGConfig.CONTENT_EXTRACTION_ENGINE === 'paddleocr_vl' &&
+			RAGConfig.PADDLEOCR_VL_BASE_URL === ''
+		) {
+			toast.error($i18n.t('PaddleOCR-vl API URL required.'));
 			return;
 		}
 
@@ -234,10 +257,18 @@
 				typeof RAGConfig.DOCLING_PARAMS === 'string' && RAGConfig.DOCLING_PARAMS.trim() !== ''
 					? JSON.parse(RAGConfig.DOCLING_PARAMS)
 					: {},
+			EXTERNAL_DOCUMENT_LOADER_HEADERS:
+				typeof RAGConfig.EXTERNAL_DOCUMENT_LOADER_HEADERS === 'string' &&
+				RAGConfig.EXTERNAL_DOCUMENT_LOADER_HEADERS.trim() !== ''
+					? JSON.parse(RAGConfig.EXTERNAL_DOCUMENT_LOADER_HEADERS)
+					: {},
 			MINERU_PARAMS:
 				typeof RAGConfig.MINERU_PARAMS === 'string' && RAGConfig.MINERU_PARAMS.trim() !== ''
 					? JSON.parse(RAGConfig.MINERU_PARAMS)
-					: {}
+					: {},
+			MINERU_FILE_EXTENSIONS: RAGConfig.MINERU_FILE_EXTENSIONS.split(',')
+				.map((ext) => ext.trim())
+				.filter((ext) => ext !== '')
 		});
 		dispatch('save');
 	};
@@ -278,6 +309,15 @@
 			typeof config.MINERU_PARAMS === 'object'
 				? JSON.stringify(config.MINERU_PARAMS ?? {}, null, 2)
 				: config.MINERU_PARAMS;
+
+		config.EXTERNAL_DOCUMENT_LOADER_HEADERS =
+			typeof config.EXTERNAL_DOCUMENT_LOADER_HEADERS === 'object'
+				? Object.keys(config.EXTERNAL_DOCUMENT_LOADER_HEADERS ?? {}).length > 0
+					? JSON.stringify(config.EXTERNAL_DOCUMENT_LOADER_HEADERS, null, 2)
+					: ''
+				: config.EXTERNAL_DOCUMENT_LOADER_HEADERS;
+
+		config.MINERU_FILE_EXTENSIONS = (config?.MINERU_FILE_EXTENSIONS ?? ['pdf']).join(', ');
 
 		RAGConfig = config;
 	});
@@ -356,6 +396,7 @@
 									<option value="datalab_marker">{$i18n.t('Datalab Marker API')}</option>
 									<option value="document_intelligence">{$i18n.t('Document Intelligence')}</option>
 									<option value="mistral_ocr">{$i18n.t('Mistral OCR')}</option>
+									<option value="paddleocr_vl">{$i18n.t('PaddleOCR-vl')}</option>
 									<option value="mineru">{$i18n.t('MinerU')}</option>
 								</select>
 							</div>
@@ -568,17 +609,78 @@
 								</div>
 							</div>
 						{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'external'}
-							<div class="my-0.5 flex gap-2 pr-2">
-								<input
-									class="flex-1 w-full text-sm bg-transparent outline-hidden"
-									placeholder={$i18n.t('Enter External Document Loader URL')}
-									bind:value={RAGConfig.EXTERNAL_DOCUMENT_LOADER_URL}
-								/>
-								<SensitiveInput
-									placeholder={$i18n.t('Enter External Document Loader API Key')}
-									required={false}
-									bind:value={RAGConfig.EXTERNAL_DOCUMENT_LOADER_API_KEY}
-								/>
+							<div class="my-0.5 flex flex-col gap-2 pr-2">
+								<div class="flex gap-2">
+									<input
+										class="flex-1 w-full text-sm bg-transparent outline-hidden"
+										placeholder={$i18n.t('Enter External Document Loader URL')}
+										bind:value={RAGConfig.EXTERNAL_DOCUMENT_LOADER_URL}
+									/>
+									<SensitiveInput
+										placeholder={$i18n.t('Enter External Document Loader API Key')}
+										required={false}
+										bind:value={RAGConfig.EXTERNAL_DOCUMENT_LOADER_API_KEY}
+									/>
+								</div>
+								<div class="flex flex-col">
+									<div class="mb-0.5 text-xs text-gray-500">{$i18n.t('Headers')}</div>
+									<Tooltip
+										content={$i18n.t(
+											'Enter additional headers in JSON format (e.g. {"X-Custom-Header": "value"}'
+										)}
+									>
+										<Textarea
+											className="w-full text-sm outline-hidden"
+											bind:value={RAGConfig.EXTERNAL_DOCUMENT_LOADER_HEADERS}
+											placeholder={$i18n.t('Enter additional headers in JSON format')}
+											required={false}
+										/>
+									</Tooltip>
+									<button
+										type="button"
+										class="mt-1 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition w-fit"
+										on:click={() =>
+											(showExternalDocumentLoaderHeadersHint =
+												!showExternalDocumentLoaderHeadersHint)}
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											viewBox="0 0 20 20"
+											fill="currentColor"
+											class="w-3 h-3 transition-transform {showExternalDocumentLoaderHeadersHint
+												? 'rotate-90'
+												: ''}"
+										>
+											<path
+												fill-rule="evenodd"
+												d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
+												clip-rule="evenodd"
+											/>
+										</svg>
+										{$i18n.t('Header variables')}
+									</button>
+									{#if showExternalDocumentLoaderHeadersHint}
+										<div class="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-5">
+											<div>
+												{$i18n.t('No additional headers are sent unless configured.')}
+											</div>
+											<div>
+												{$i18n.t('Example')}:
+												<code class="text-gray-700 dark:text-gray-300"
+													>{'{"X-OpenWebUI-File-Id": "{{FILE_ID}}"}'}</code
+												>
+											</div>
+											<div>
+												{$i18n.t('Available variables')}:
+												<code class="text-gray-700 dark:text-gray-300">{'{{FILE_ID}}'}</code>,
+												<code class="text-gray-700 dark:text-gray-300">{'{{FILE_NAME}}'}</code>,
+												<code class="text-gray-700 dark:text-gray-300"
+													>{'{{FILE_CONTENT_TYPE}}'}</code
+												>
+											</div>
+										</div>
+									{/if}
+								</div>
 							</div>
 						{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'tika'}
 							<div class="flex w-full mt-1">
@@ -655,6 +757,19 @@
 								<SensitiveInput
 									placeholder={$i18n.t('Enter Mistral API Key')}
 									bind:value={RAGConfig.MISTRAL_OCR_API_KEY}
+								/>
+							</div>
+						{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'paddleocr_vl'}
+							<div class="my-0.5 flex gap-2 pr-2">
+								<input
+									class="flex-1 w-full text-sm bg-transparent outline-hidden"
+									placeholder={$i18n.t('Enter PaddleOCR-vl API Base URL')}
+									bind:value={RAGConfig.PADDLEOCR_VL_BASE_URL}
+								/>
+								<SensitiveInput
+									placeholder={$i18n.t('Enter PaddleOCR-vl API Token')}
+									bind:value={RAGConfig.PADDLEOCR_VL_TOKEN}
+									required={false}
 								/>
 							</div>
 						{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'mineru'}
@@ -741,6 +856,25 @@
 										minSize={100}
 									/>
 								</div>
+							</div>
+
+							<!-- File Extensions -->
+							<div class="flex flex-col justify-between w-full mt-2">
+								<div class="text-xs font-medium mb-1">
+									<Tooltip
+										content={$i18n.t(
+											'Comma-separated list of file extensions MinerU will handle (e.g. pdf, docx, pptx, xlsx)'
+										)}
+										placement="top-start"
+									>
+										{$i18n.t('File Extensions')}
+									</Tooltip>
+								</div>
+								<input
+									class="flex-1 w-full text-sm bg-transparent outline-hidden"
+									placeholder={$i18n.t('pdf, docx, pptx, xlsx')}
+									bind:value={RAGConfig.MINERU_FILE_EXTENSIONS}
+								/>
 							</div>
 						{/if}
 					</div>
@@ -1349,6 +1483,14 @@
 									/>
 								</Tooltip>
 							</div>
+
+							{#if RAGConfig.RAG_TEMPLATE && (RAGConfig.RAG_TEMPLATE.match(/\[context\]/g) || []).length + (RAGConfig.RAG_TEMPLATE.match(/\{\{CONTEXT\}\}/g) || []).length > 1}
+								<div class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+									{$i18n.t(
+										'This template contains multiple context placeholders ([context] or {{CONTEXT}}). Context will be injected at each occurrence.'
+									)}
+								</div>
+							{/if}
 						</div>
 					</div>
 				{/if}

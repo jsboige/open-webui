@@ -112,8 +112,13 @@
 					clonedElement.style.height = 'auto';
 					document.body.appendChild(clonedElement);
 
-					// Wait for DOM update/layout
-					await new Promise((r) => setTimeout(r, 100));
+					// Override content-visibility so html2canvas can capture all messages
+					clonedElement.querySelectorAll('.message-listitem').forEach((el) => {
+						el.style.contentVisibility = 'visible';
+					});
+
+					// Let the browser compute layout for the cloned element
+					await new Promise((r) => requestAnimationFrame(r));
 
 					// Render entire content once
 					const canvas = await html2canvas(clonedElement, {
@@ -308,19 +313,19 @@
 				</button>
 			{/if}
 
-			<DropdownSub
-				contentClass="select-none rounded-2xl p-1 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg border border-gray-100 dark:border-gray-800"
-			>
-				<button
-					slot="trigger"
-					draggable="false"
-					class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl w-full"
+			{#if $user?.role === 'admin' || ($user.permissions?.chat?.export ?? true)}
+				<DropdownSub
+					contentClass="select-none rounded-2xl p-1 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg border border-gray-100 dark:border-gray-800"
 				>
-					<Download strokeWidth="1.5" />
-					<div class="flex items-center">{$i18n.t('Download')}</div>
-				</button>
+					<button
+						slot="trigger"
+						draggable="false"
+						class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl w-full"
+					>
+						<Download strokeWidth="1.5" />
+						<div class="flex items-center">{$i18n.t('Download')}</div>
+					</button>
 
-				{#if $user?.role === 'admin' || ($user.permissions?.chat?.export ?? true)}
 					<button
 						draggable="false"
 						class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl w-full"
@@ -330,28 +335,28 @@
 					>
 						<div class="flex items-center line-clamp-1">{$i18n.t('Export chat (.json)')}</div>
 					</button>
-				{/if}
 
-				<button
-					draggable="false"
-					class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl w-full"
-					on:click={() => {
-						downloadTxt();
-					}}
-				>
-					<div class="flex items-center line-clamp-1">{$i18n.t('Plain text (.txt)')}</div>
-				</button>
+					<button
+						draggable="false"
+						class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl w-full"
+						on:click={() => {
+							downloadTxt();
+						}}
+					>
+						<div class="flex items-center line-clamp-1">{$i18n.t('Plain text (.txt)')}</div>
+					</button>
 
-				<button
-					draggable="false"
-					class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl select-none w-full"
-					on:click={() => {
-						downloadPdf();
-					}}
-				>
-					<div class="flex items-center line-clamp-1">{$i18n.t('PDF document (.pdf)')}</div>
-				</button>
-			</DropdownSub>
+					<button
+						draggable="false"
+						class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl select-none w-full"
+						on:click={() => {
+							downloadPdf();
+						}}
+					>
+						<div class="flex items-center line-clamp-1">{$i18n.t('PDF document (.pdf)')}</div>
+					</button>
+				</DropdownSub>
+			{/if}
 
 			<button
 				draggable="false"
@@ -382,17 +387,19 @@
 				{/if}
 			</button>
 
-			<button
-				draggable="false"
-				class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl w-full"
-				on:click={() => {
-					show = false;
-					cloneChatHandler();
-				}}
-			>
-				<DocumentDuplicate strokeWidth="1.5" />
-				<div class="flex items-center">{$i18n.t('Clone')}</div>
-			</button>
+			{#if $user?.role === 'admin' || ($user?.permissions?.chat?.import ?? true)}
+				<button
+					draggable="false"
+					class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl w-full"
+					on:click={() => {
+						show = false;
+						cloneChatHandler();
+					}}
+				>
+					<DocumentDuplicate strokeWidth="1.5" />
+					<div class="flex items-center">{$i18n.t('Clone')}</div>
+				</button>
+			{/if}
 
 			{#if chatId && $folders.length > 0}
 				<DropdownSub

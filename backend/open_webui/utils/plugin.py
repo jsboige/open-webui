@@ -1,20 +1,22 @@
+from __future__ import annotations
+
+import logging
 import os
 import re
 import subprocess
 import sys
-from importlib import util
-import types
 import tempfile
-import logging
+import types
+from importlib import util
 from typing import Any
 
 from open_webui.env import (
+    ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS,
+    OFFLINE_MODE,
     PIP_OPTIONS,
     PIP_PACKAGE_INDEX_OPTIONS,
-    OFFLINE_MODE,
-    ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS,
 )
-from open_webui.models.functions import Functions
+from open_webui.models.functions import FunctionModel, Functions
 from open_webui.models.tools import Tools
 
 log = logging.getLogger(__name__)
@@ -283,6 +285,8 @@ async def load_function_module_by_id(function_id: str, content: str | None = Non
             return module.Filter(), 'filter', frontmatter
         elif hasattr(module, 'Action'):
             return module.Action(), 'action', frontmatter
+        elif hasattr(module, 'Event'):
+            return module.Event(), 'event', frontmatter
         else:
             raise Exception('No Function class found in the module')
     except Exception as e:
@@ -296,7 +300,33 @@ async def load_function_module_by_id(function_id: str, content: str | None = Non
         os.unlink(temp_file.name)
 
 
+def _state_cache(request, name: str) -> dict:
+    if not hasattr(request.app.state, name):
+        setattr(request.app.state, name, {})
+    return getattr(request.app.state, name)
+
+
+def get_tools_cache(request) -> dict:
+    return _state_cache(request, 'TOOLS')
+
+
+def get_tool_contents_cache(request) -> dict:
+    return _state_cache(request, 'TOOL_CONTENTS')
+
+
+def get_functions_cache(request) -> dict:
+    return _state_cache(request, 'FUNCTIONS')
+
+
+def get_function_contents_cache(request) -> dict:
+    return _state_cache(request, 'FUNCTION_CONTENTS')
+
+
 async def get_tool_module_from_cache(request, tool_id, load_from_db=True):
+    tools_cache = get_tools_cache(request)
+    tool_contents_cache = get_tool_contents_cache(request)
+    content = None
+
     if load_from_db:
         # Always load from the database by default
         tool = await Tools.get_tool_by_id(tool_id)
@@ -310,38 +340,37 @@ async def get_tool_module_from_cache(request, tool_id, load_from_db=True):
             # Update the tool content in the database
             await Tools.update_tool_by_id(tool_id, {'content': content})
 
-        if (hasattr(request.app.state, 'TOOL_CONTENTS') and tool_id in request.app.state.TOOL_CONTENTS) and (
-            hasattr(request.app.state, 'TOOLS') and tool_id in request.app.state.TOOLS
-        ):
-            if request.app.state.TOOL_CONTENTS[tool_id] == content:
-                return request.app.state.TOOLS[tool_id], None
+        if tool_id in tool_contents_cache and tool_id in tools_cache:
+            if tool_contents_cache[tool_id] == content:
+                return tools_cache[tool_id], None
 
         tool_module, frontmatter = await load_tool_module_by_id(tool_id, content)
     else:
-        if hasattr(request.app.state, 'TOOLS') and tool_id in request.app.state.TOOLS:
-            return request.app.state.TOOLS[tool_id], None
+        if tool_id in tools_cache:
+            return tools_cache[tool_id], None
 
         tool_module, frontmatter = await load_tool_module_by_id(tool_id)
 
-    if not hasattr(request.app.state, 'TOOLS'):
-        request.app.state.TOOLS = {}
-
-    if not hasattr(request.app.state, 'TOOL_CONTENTS'):
-        request.app.state.TOOL_CONTENTS = {}
-
-    request.app.state.TOOLS[tool_id] = tool_module
-    request.app.state.TOOL_CONTENTS[tool_id] = content
+    tools_cache[tool_id] = tool_module
+    tool_contents_cache[tool_id] = content
 
     return tool_module, frontmatter
 
 
-async def get_function_module_from_cache(request, function_id, load_from_db=True):
+async def get_function_module_from_cache(
+    request, function_id, function: FunctionModel | None = None, load_from_db=True
+):
+    functions_cache = get_functions_cache(request)
+    function_contents_cache = get_function_contents_cache(request)
+    content = None
+
     if load_from_db:
         # Always load from the database by default
         # This is useful for hooks like "inlet" or "outlet" where the content might change
         # and we want to ensure the latest content is used.
 
-        function = await Functions.get_function_by_id(function_id)
+        if function is None:
+            function = await Functions.get_function_by_id(function_id)
         if not function:
             raise Exception(f'Function not found: {function_id}')
         content = function.content
@@ -352,35 +381,31 @@ async def get_function_module_from_cache(request, function_id, load_from_db=True
             # Update the function content in the database
             await Functions.update_function_by_id(function_id, {'content': content})
 
-        if (
-            hasattr(request.app.state, 'FUNCTION_CONTENTS') and function_id in request.app.state.FUNCTION_CONTENTS
-        ) and (hasattr(request.app.state, 'FUNCTIONS') and function_id in request.app.state.FUNCTIONS):
-            if request.app.state.FUNCTION_CONTENTS[function_id] == content:
-                return request.app.state.FUNCTIONS[function_id], None, None
+        if function_id in function_contents_cache and function_id in functions_cache:
+            if function_contents_cache[function_id] == content:
+                return functions_cache[function_id], None, None
 
         function_module, function_type, frontmatter = await load_function_module_by_id(function_id, content)
     else:
         # Load from cache (e.g. "stream" hook)
         # This is useful for performance reasons
 
-        if hasattr(request.app.state, 'FUNCTIONS') and function_id in request.app.state.FUNCTIONS:
-            return request.app.state.FUNCTIONS[function_id], None, None
+        if function_id in functions_cache:
+            return functions_cache[function_id], None, None
 
         function_module, function_type, frontmatter = await load_function_module_by_id(function_id)
 
-    if not hasattr(request.app.state, 'FUNCTIONS'):
-        request.app.state.FUNCTIONS = {}
-
-    if not hasattr(request.app.state, 'FUNCTION_CONTENTS'):
-        request.app.state.FUNCTION_CONTENTS = {}
-
-    request.app.state.FUNCTIONS[function_id] = function_module
-    request.app.state.FUNCTION_CONTENTS[function_id] = content
+    functions_cache[function_id] = function_module
+    function_contents_cache[function_id] = content
 
     return function_module, function_type, frontmatter
 
 
+_installed_requirements = set()
+
+
 def install_frontmatter_requirements(requirements: str):
+    global _installed_requirements
     if not ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS:
         log.info('ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS is disabled, skipping installation of requirements.')
         return
@@ -392,12 +417,18 @@ def install_frontmatter_requirements(requirements: str):
     if requirements:
         try:
             req_list = [req.strip() for req in requirements.split(',')]
-            log.info(f'Installing requirements: {" ".join(req_list)}')
+            new_reqs = [req for req in req_list if req and req not in _installed_requirements]
+
+            if not new_reqs:
+                return
+
+            log.info(f'Installing requirements: {" ".join(new_reqs)}')
             subprocess.check_call(
-                [sys.executable, '-m', 'pip', 'install'] + PIP_OPTIONS + req_list + PIP_PACKAGE_INDEX_OPTIONS
+                [sys.executable, '-m', 'pip', 'install'] + PIP_OPTIONS + new_reqs + PIP_PACKAGE_INDEX_OPTIONS
             )
+            _installed_requirements.update(new_reqs)
         except Exception as e:
-            log.error(f'Error installing packages: {" ".join(req_list)}')
+            log.error(f'Error installing packages: {" ".join(new_reqs)}')
             raise e
 
     else:

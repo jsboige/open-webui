@@ -35,6 +35,8 @@
 
 	const i18n = getContext('i18n');
 
+	$: canImportChats = $user?.role === 'admin' || ($user?.permissions?.chat?.import ?? true);
+
 	import {
 		getChatList,
 		getAllTags,
@@ -46,7 +48,12 @@
 		deleteAllChats,
 		getChatListBySearchText
 	} from '$lib/apis/chats';
-	import { createNewFolder, getFolders, updateFolderParentIdById } from '$lib/apis/folders';
+	import {
+		createNewFolder,
+		getFolders,
+		getSharedFolders,
+		updateFolderParentIdById
+	} from '$lib/apis/folders';
 	import { createNewNote, getPinnedNoteList, toggleNotePinnedStatusById } from '$lib/apis/notes';
 	import { updateUserSettings } from '$lib/apis/users';
 	import { checkActiveChats } from '$lib/apis/tasks';
@@ -61,6 +68,7 @@
 	import Folder from '../common/Folder.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
 	import Folders from './Sidebar/Folders.svelte';
+	import SharedFolderItem from './Sidebar/SharedFolderItem.svelte';
 	import { getChannels, createNewChannel } from '$lib/apis/channels';
 	import ChannelModal from './Sidebar/ChannelModal.svelte';
 	import ChannelItem from './Sidebar/ChannelItem.svelte';
@@ -98,11 +106,14 @@
 	let showPinnedNotes = false;
 	let showChannels = false;
 	let showFolders = false;
+	let showSharedFolders = false;
 
 	let folders = {};
 	let folderRegistry = {};
 
 	let newFolderId = null;
+
+	let sharedFolders: any[] = [];
 
 	$: pinnedItems = $settings?.pinnedMenuItems ?? DEFAULT_PINNED_ITEMS;
 
@@ -119,7 +130,8 @@
 					$user?.permissions?.workspace?.models ||
 					$user?.permissions?.workspace?.knowledge ||
 					$user?.permissions?.workspace?.prompts ||
-					$user?.permissions?.workspace?.tools
+					$user?.permissions?.workspace?.tools ||
+					$user?.permissions?.workspace?.skills
 				);
 			case 'automations':
 				return (
@@ -214,6 +226,31 @@
 				});
 			}
 		}
+
+		// Merge shared folders into the same structure
+		try {
+			sharedFolders = await getSharedFolders(localStorage.token);
+		} catch (e) {
+			sharedFolders = [];
+		}
+
+		for (const sf of sharedFolders) {
+			if (folders[sf.id]) continue; // Already owned by user
+			folders[sf.id] = { ...sf, shared: true };
+		}
+
+		// Build parent-child relationships for shared folders
+		for (const sf of sharedFolders) {
+			if (folders[sf.id]?.shared && sf.parent_id && folders[sf.parent_id]) {
+				folders[sf.parent_id].childrenIds = folders[sf.parent_id].childrenIds
+					? [...new Set([...folders[sf.parent_id].childrenIds, sf.id])]
+					: [sf.id];
+			}
+		}
+	};
+
+	const initSharedFolders = async () => {
+		await initFolders();
 	};
 
 	const createFolder = async ({ name, data, parent_id }) => {
@@ -290,18 +327,19 @@
 		scrollPaginationEnabled.set(false);
 
 		initFolders();
+		initSharedFolders();
 		await Promise.all([
-			await (async () => {
+			(async () => {
 				console.log('Init tags');
 				const _tags = await getAllTags(localStorage.token);
 				tags.set(_tags);
 			})(),
-			await (async () => {
+			(async () => {
 				console.log('Init pinned chats');
 				const _pinnedChats = await getPinnedChatList(localStorage.token);
 				pinnedChats.set(_pinnedChats);
 			})(),
-			await (async () => {
+			(async () => {
 				if (
 					$config?.features?.enable_notes &&
 					($user?.role === 'admin' || ($user?.permissions?.features?.notes ?? true))
@@ -311,7 +349,7 @@
 					pinnedNotes.set(_pinnedNotes);
 				}
 			})(),
-			await (async () => {
+			(async () => {
 				console.log('Init chat list');
 				const _chats = await getChatList(localStorage.token, $currentChatPage);
 				await chats.set(_chats);
@@ -341,6 +379,11 @@
 	};
 
 	const importChatHandler = async (items, pinned = false, folderId = null) => {
+		if (!canImportChats) {
+			toast.error($i18n.t('Access prohibited'));
+			return;
+		}
+
 		console.log('importChatHandler', items, pinned, folderId);
 		for (const item of items) {
 			console.log(item);
@@ -947,8 +990,10 @@
 								}
 							}}
 						>
-							<div
+							<button
+								type="button"
 								class=" cursor-pointer flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-850 transition group"
+								aria-label={$i18n.t('User menu')}
 							>
 								<div class="self-center relative">
 									<img
@@ -970,7 +1015,7 @@
 										</div>
 									{/if}
 								</div>
-							</div>
+							</button>
 						</UserMenu>
 					{/if}
 				</div>
@@ -1368,6 +1413,11 @@
 								return null;
 							});
 							if (!chat && item) {
+								if (!canImportChats) {
+									toast.error($i18n.t('Access prohibited'));
+									return;
+								}
+
 								chat = await importChats(localStorage.token, [
 									{
 										chat: item.chat,
@@ -1434,6 +1484,11 @@
 												return null;
 											});
 											if (!chat && item) {
+												if (!canImportChats) {
+													toast.error($i18n.t('Access prohibited'));
+													return;
+												}
+
 												chat = await importChats(localStorage.token, [
 													{
 														chat: item.chat,
@@ -1607,10 +1662,12 @@
 								}
 							}}
 						>
-							<div
+							<button
+								type="button"
 								class=" flex items-center rounded-2xl py-2 px-1.5 w-full hover:bg-gray-100/50 dark:hover:bg-gray-900/50 transition"
+								aria-label={$i18n.t('User menu')}
 							>
-								<div class=" self-center mr-3 relative">
+								<div class=" self-center mr-3 relative flex-shrink-0">
 									<img
 										src={`${WEBUI_API_BASE_URL}/users/${$user?.id}/profile/image`}
 										class=" size-7 object-cover rounded-full"
@@ -1630,8 +1687,8 @@
 										</div>
 									{/if}
 								</div>
-								<div class=" self-center font-medium">{$user?.name}</div>
-							</div>
+								<div class=" self-center font-medium truncate">{$user?.name}</div>
+							</button>
 						</UserMenu>
 					{/if}
 				</div>

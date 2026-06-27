@@ -24,7 +24,10 @@ export const DEFAULT_PERMISSIONS = {
 		skills: false,
 		public_skills: false,
 		notes: false,
-		public_notes: false
+		public_notes: false,
+		folders: false,
+		public_chats: false,
+		public_calendars: false
 	},
 	access_grants: {
 		allow_users: true
@@ -44,6 +47,7 @@ export const DEFAULT_PERMISSIONS = {
 		edit: true,
 		share: true,
 		export: true,
+		import: true,
 		stt: true,
 		tts: true,
 		call: true,
@@ -61,7 +65,9 @@ export const DEFAULT_PERMISSIONS = {
 		image_generation: true,
 		code_interpreter: true,
 		memories: true,
-		automations: false
+		automations: false,
+		calendar: true,
+		webhooks: false
 	},
 	settings: {
 		interface: true

@@ -39,7 +39,11 @@
 	const NS = 1_000_000;
 
 	function nsToDateStr(ns: number): string {
-		return new Date(ns / NS).toISOString().slice(0, 10);
+		const d = new Date(ns / NS);
+		const year = d.getFullYear();
+		const month = String(d.getMonth() + 1).padStart(2, '0');
+		const day = String(d.getDate()).padStart(2, '0');
+		return `${year}-${month}-${day}`;
 	}
 
 	function nsToTimeStr(ns: number): string {
@@ -103,11 +107,11 @@
 				const result = await updateCalendarEvent(localStorage.token, event.id, {
 					calendar_id: calendarId,
 					title: title.trim(),
-					description: description.trim() || undefined,
+					description: description.trim() || null,
 					start_at: startNs,
 					end_at: endNs,
 					all_day: allDay,
-					location: location.trim() || undefined,
+					location: location.trim() || null,
 					meta: { alert_minutes: alertMinutes }
 				});
 				if (result) {
