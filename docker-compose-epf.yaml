@@ -6,7 +6,7 @@ services:
     ports:
       - ${OPEN_WEBUI_PORT-3010}:8080
     environment:
-      - 'WEBUI_SECRET_KEY='
+      - 'WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY-}'
       - 'WEBUI_NAME=${WEBUI_NAME}'
       - 'VECTOR_DB=${VECTOR_DB}'
       - 'QDRANT_URI=${QDRANT_URI}'
