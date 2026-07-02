@@ -274,6 +274,10 @@ test.describe('18 — Full Stack Services Verification', () => {
       const config = await getAudioConfig(request, myia.config.url, myia.token);
       expect(config.tts.ENGINE).toBe('openai');
       expect(config.tts.MODEL).toBe('kokoro');
+      // base_url is the field most likely to silently break TTS if it drifts
+      // (the 2026-07-02 401 was a wrong key VALUE, but a wrong base_url fails
+      // the same way). The config test must pin it, not just engine/model.
+      expect(config.tts.OPENAI_API_BASE_URL).toBe('https://tts.myia.io/kokoro/v1');
       expect(config.stt.ENGINE).toBe('openai');
       expect(config.stt.MODEL).toBe('whisper-1');
     });
@@ -303,6 +307,35 @@ test.describe('18 — Full Stack Services Verification', () => {
       );
       expect(transcript, 'STT should return text').toBeTruthy();
       expect(transcript!.length).toBeGreaterThan(10);
+    });
+
+    test('TTS config is consistent across tenants', async ({ request }) => {
+      const myia = tenantTokens['myia'];
+      test.skip(!myia, 'myia not available');
+
+      // The Kokoro key + endpoint are pushed identically to all 7 tenants by
+      // scripts/reports/kokoro-token-resync-*.py. A per-tenant drift breaks TTS
+      // on that tenant alone. The live TTS smoke above is myia-only, but the
+      // 2026-07-02 401 was FLEET-WIDE — this guards the resync invariant so a
+      // divergent tenant is caught here rather than in production. (Verified
+      // 2026-07-02: engine/base_url/key byte-identical on all 7.)
+      const ref = (await getAudioConfig(request, myia.config.url, myia.token)).tts;
+      const mismatches: string[] = [];
+
+      for (const [name, { config, token }] of Object.entries(tenantTokens)) {
+        if (name === 'myia') continue;
+        const tts = (await getAudioConfig(request, config.url, token)).tts;
+        if (tts.ENGINE !== ref.ENGINE) {
+          mismatches.push(`${name}: engine ${tts.ENGINE}`);
+        }
+        if (tts.OPENAI_API_BASE_URL !== ref.OPENAI_API_BASE_URL) {
+          mismatches.push(`${name}: base_url ${tts.OPENAI_API_BASE_URL}`);
+        }
+        if (tts.OPENAI_API_KEY !== ref.OPENAI_API_KEY) {
+          mismatches.push(`${name}: key mismatch`);
+        }
+      }
+      expect(mismatches, mismatches.join('; ')).toHaveLength(0);
     });
   });
 
