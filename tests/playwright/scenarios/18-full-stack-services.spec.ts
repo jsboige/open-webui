@@ -99,9 +99,25 @@ test.describe('18 — Full Stack Services Verification', () => {
         const myia = tenantTokens['myia'];
         test.skip(!myia, 'myia not available');
 
-        const response = await chatCompletion(
+        const chat = () => chatCompletion(
           request, myia.config.url, myia.token, model, 'Say OK', { timeout: 90_000 },
         );
+
+        let response;
+        if (model.startsWith('Local.')) {
+          // vLLM idle sleep: the first request after a long idle stretch
+          // (e.g. 35 min of suites 11-15 on MistralAI) can blow the 90s
+          // budget while the engine wakes (~3 min, EngineDeadError pattern).
+          // Retry once so only a persistent outage fails.
+          test.setTimeout(300_000);
+          response = await chat().catch(() => null);
+          if (!response) {
+            await new Promise(resolve => setTimeout(resolve, 60_000));
+            response = await chat();
+          }
+        } else {
+          response = await chat();
+        }
         expect(response, `${name} should respond`).toBeTruthy();
       });
     }
@@ -128,9 +144,22 @@ test.describe('18 — Full Stack Services Verification', () => {
         expect(detail.base_model_id).toBe(expectedBase);
 
         // Functional test: send a message
-        const response = await chatCompletion(
+        const chat = () => chatCompletion(
           request, myia.config.url, myia.token, id, 'Say hello in one sentence.', { timeout: 90_000 },
         );
+
+        let response;
+        if (expectedBase.startsWith('Local.')) {
+          // Same vLLM idle-wake retry as 18.2 (see comment there).
+          test.setTimeout(300_000);
+          response = await chat().catch(() => null);
+          if (!response) {
+            await new Promise(resolve => setTimeout(resolve, 60_000));
+            response = await chat();
+          }
+        } else {
+          response = await chat();
+        }
         expect(response, `${name} should respond`).toBeTruthy();
         expect(response!.length).toBeGreaterThan(2);
       });
