@@ -38,8 +38,9 @@ test.describe('03 — Custom Models & Personas', () => {
   });
 
   test('fast model (Qwen3.6-35B-A3B Fast) has no <think> tags', async ({ page }) => {
-    // "Fast" alone is ambiguous since OpenRouter added x-ai/grok-4-fast —
-    // "(Fast)" only matches the local wrapper "Qwen3.6-35B-A3B (Fast)".
+    // "Fast" alone was ambiguous (matched OpenRouter x-ai/grok-4-fast, removed
+    // from the lineup 2026-07-02 after upstream deprecation) — "(Fast)" only
+    // matches the local wrapper "Qwen3.6-35B-A3B (Fast)".
     await selectModel(page, '(Fast)');
     const response = await chat(page, 'Quelle est la capitale de la France?');
 
