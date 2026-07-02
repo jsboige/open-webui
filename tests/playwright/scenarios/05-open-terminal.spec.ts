@@ -8,11 +8,13 @@ test.describe('05 — Open Terminal', () => {
 
   test('execute simple Python script via terminal', async ({ page }) => {
     // Select a model that has terminal_id configured (TP tutor models)
-    await selectModel(page, 'Tuteur');
+    await selectModel(page, 'TP Linux');
 
+    // The Débutant tutor persona explains instead of executing unless the
+    // prompt explicitly demands a real tool run with pasted output.
     const response = await chat(
       page,
-      'Execute this Python code and show me the output: print("Hello from Open Terminal")',
+      'Utilise ton outil terminal MAINTENANT pour exécuter exactement ceci et colle la sortie réelle, sans explication : echo "Hello from Open Terminal"',
     );
 
     // Skip if model not available or returned empty
@@ -24,7 +26,7 @@ test.describe('05 — Open Terminal', () => {
   });
 
   test('verify data science packages installed', async ({ page }) => {
-    await selectModel(page, 'Tuteur');
+    await selectModel(page, 'TP Linux');
 
     const response = await chat(
       page,
@@ -39,11 +41,11 @@ test.describe('05 — Open Terminal', () => {
   });
 
   test('terminal isolation: create and read file', async ({ page }) => {
-    await selectModel(page, 'Tuteur');
+    await selectModel(page, 'TP Linux');
 
     const response = await chat(
       page,
-      'Run this: echo "tenant-marker-test" > /tmp/isolation_test.txt && cat /tmp/isolation_test.txt',
+      'Utilise ton outil terminal MAINTENANT (sans explication, colle juste la sortie réelle) : echo "tenant-marker-test" > /tmp/isolation_test.txt && cat /tmp/isolation_test.txt',
     );
 
     test.skip(!response || response.length < 10

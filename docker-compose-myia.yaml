@@ -24,6 +24,7 @@ services:
       - 'WEBSOCKET_MANAGER=${WEBSOCKET_MANAGER-redis}'
       - 'WEBSOCKET_REDIS_URL=${WEBSOCKET_REDIS_URL}'
       - 'WEBSOCKET_REDIS_LOCK_TIMEOUT=${WEBSOCKET_REDIS_LOCK_TIMEOUT-300}'
+      - 'GLOBAL_LOG_LEVEL=${GLOBAL_LOG_LEVEL-INFO}'
     extra_hosts:
       - host.docker.internal:host-gateway
     networks:

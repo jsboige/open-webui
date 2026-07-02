@@ -55,6 +55,16 @@ export async function waitForResponse(page: Page, timeoutMs = 120_000): Promise<
   // Wait for the assistant message to start appearing
   await expect(page.locator(CHAT.assistantMessage).last()).toBeVisible({ timeout: 30_000 });
 
+  // Wait for message.done: the action bar's Copy button only renders once
+  // generation fully completed — including follow-up rounds after tool calls
+  // (content-based polling alone returns as soon as the tool-call widget
+  // renders, before the model writes its final answer). Capped below the
+  // test budget so a selector drift degrades to the content poll instead of
+  // killing the test.
+  await expect(
+    page.locator(CHAT.assistantMessage).last().locator(CHAT.messageDoneCopy).first(),
+  ).toBeVisible({ timeout: Math.min(timeoutMs, 90_000) }).catch(() => {});
+
   // Wait for response to fully complete.
   // During thinking: status toggle shows "Token" but content container is empty.
   // After completion: #response-content-container has rendered markdown text.

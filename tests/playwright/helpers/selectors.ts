@@ -56,6 +56,12 @@ export const CHAT = {
   closeEditButton: '#close-edit-message-button',
   confirmEditButton: '#confirm-edit-message-button',
   availableTools: 'button[aria-label="Available Tools"]',
+  // Message action bar (ResponseMessage: `{#if message.done}`) — its Copy
+  // button only renders once generation fully completed, INCLUDING follow-up
+  // rounds after tool calls. The v0.10.2 release build has NO aria-label on
+  // this button (added later upstream) — the stable `copy-response-button`
+  // class is present in both the release bundle and dev.
+  messageDoneCopy: 'button.copy-response-button',
 } as const;
 
 // --- Share ---
@@ -67,6 +73,18 @@ export const SHARE = {
 // --- Sidebar ---
 export const SIDEBAR = {
   searchContainer: '#search-container',
+} as const;
+
+// --- Integrations menu (v0.10: the "+" button in the chat input) ---
+// Workspace tools are enabled per-chat from this menu; the "Available Tools"
+// wrench button only renders once selectedToolIds is non-empty
+// (MessageInput.svelte: `{#if (selectedToolIds ?? []).length > 0}`).
+export const INTEGRATIONS = {
+  // aria-label is i18n'd ($i18n.t('Integrations')) — fr keeps "Intégrations"
+  menuButton:
+    'button[aria-label="Integrations"], button[aria-label="Intégrations"]',
+  // Root menu entry opening the tools tab ("Tools N" / "Outils N")
+  toolsEntry: /^(tools|outils)\b/i,
 } as const;
 
 // --- Account / user menu ---
