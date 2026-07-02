@@ -83,11 +83,13 @@ async def create_new_group(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=ERROR_MESSAGES.DEFAULT('Error creating group'),
             )
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(f'Error creating a new group: {e}')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error creating group'),
         )
 
 
@@ -166,7 +168,7 @@ async def get_users_in_group(id: str, user=Depends(get_admin_user), db: AsyncSes
         log.exception(f'Error adding users to group {id}: {e}')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error getting group members'),
         )
 
 
@@ -202,11 +204,13 @@ async def update_group_by_id(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=ERROR_MESSAGES.DEFAULT('Error updating group'),
             )
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(f'Error updating group {id}: {e}')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating group'),
         )
 
 
@@ -245,11 +249,13 @@ async def add_user_to_group(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=ERROR_MESSAGES.DEFAULT('Error adding users to group'),
             )
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(f'Error adding users to group {id}: {e}')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error adding users to group'),
         )
 
 
@@ -280,11 +286,13 @@ async def remove_users_from_group(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=ERROR_MESSAGES.DEFAULT('Error removing users from group'),
             )
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(f'Error removing users from group {id}: {e}')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error removing users from group'),
         )
 
 
@@ -312,11 +320,13 @@ async def delete_group_by_id(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=ERROR_MESSAGES.DEFAULT('Error deleting group'),
             )
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(f'Error deleting group {id}: {e}')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error deleting group'),
         )
 
 

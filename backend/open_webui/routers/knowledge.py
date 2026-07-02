@@ -335,12 +335,19 @@ async def reindex_knowledge_files(
         )
 
     knowledge_bases = await Knowledges.get_knowledge_bases(db=db)
+    knowledge_base_files = [
+        (knowledge_base, await Knowledges.get_files_by_id(knowledge_base.id, db=db))
+        for knowledge_base in knowledge_bases
+    ]
+    total_files = sum(len(files) for _, files in knowledge_base_files)
+    processed_files = 0
+    failed_files = []
+    start_time = time.monotonic()
 
-    log.info(f'Starting reindexing for {len(knowledge_bases)} knowledge bases')
+    log.info(f'Starting reindexing for {len(knowledge_bases)} knowledge bases ({total_files} files)')
 
-    for knowledge_base in knowledge_bases:
+    for kb_idx, (knowledge_base, files) in enumerate(knowledge_base_files, start=1):
         try:
-            files = await Knowledges.get_files_by_id(knowledge_base.id, db=db)
             try:
                 if await ASYNC_VECTOR_DB_CLIENT.has_collection(collection_name=knowledge_base.id):
                     await ASYNC_VECTOR_DB_CLIENT.delete_collection(collection_name=knowledge_base.id)
@@ -348,8 +355,19 @@ async def reindex_knowledge_files(
                 log.error(f'Error deleting collection {knowledge_base.id}: {str(e)}')
                 continue  # Skip, don't raise
 
-            failed_files = []
             for file in files:
+                processed_files += 1
+                eta = ''
+                if processed_files > 1:
+                    elapsed = time.monotonic() - start_time
+                    remaining_files = total_files - processed_files + 1
+                    eta = f', ETA: {round(elapsed / (processed_files - 1) * remaining_files)}s'
+
+                log.info(
+                    f'Reindexing knowledge base {kb_idx}/{len(knowledge_bases)} '
+                    f'file {processed_files}/{total_files}{eta}: {file.filename}'
+                )
+
                 try:
                     await process_file(
                         request,
@@ -368,11 +386,11 @@ async def reindex_knowledge_files(
             continue
 
     if failed_files:
-        log.warning(f'Failed to process {len(failed_files)} files in knowledge base {knowledge_base.id}')
+        log.warning(f'Failed to process {len(failed_files)} files')
         for failed in failed_files:
             log.warning(f'File ID: {failed["file_id"]}, Error: {failed["error"]}')
 
-    log.info(f'Reindexing completed.')
+    log.info(f'Reindexing completed in {round(time.monotonic() - start_time)}s.')
     await publish_event(
         request,
         EVENTS.KNOWLEDGE_REINDEXED,
@@ -552,7 +570,9 @@ async def _set_external_connections(connections: list[dict]) -> None:
     await Config.upsert({EXTERNAL_KNOWLEDGE_CONNECTIONS_CONFIG_KEY: connections})
 
 
-def _external_connection_dict(form_data: ExternalKnowledgeConnectionForm, user_id: str, id: Optional[str] = None) -> dict:
+def _external_connection_dict(
+    form_data: ExternalKnowledgeConnectionForm, user_id: str, id: Optional[str] = None
+) -> dict:
     provider, config = _validate_external_connection_form(form_data)
     now = int(time.time())
     return {
@@ -1685,9 +1705,7 @@ async def delete_knowledge_by_id(
         connection_id = (knowledge.meta or {}).get('external', {}).get('connection_id')
         if connection_id:
             connections = [
-                connection
-                for connection in await _get_external_connections()
-                if connection.get('id') != connection_id
+                connection for connection in await _get_external_connections() if connection.get('id') != connection_id
             ]
             await _set_external_connections(connections)
     else:
@@ -2108,18 +2126,13 @@ async def export_knowledge_by_id(id: str, user=Depends(get_admin_user), db: Asyn
     zip_buffer.seek(0)
 
     # Sanitize knowledge name for filename
-    # ASCII-safe fallback for the basic filename parameter (latin-1 safe)
-    safe_name = ''.join(c if c.isascii() and (c.isalnum() or c in ' -_') else '_' for c in knowledge.name)
+    safe_name = ''.join(c if c.isalnum() or c in ' -_' else '_' for c in knowledge.name)
     zip_filename = f'{safe_name}.zip'
-
-    # Use RFC 5987 filename* for non-ASCII names so the browser gets the real name
-    quoted_name = quote(f'{knowledge.name}.zip')
-    content_disposition = f'attachment; filename="{zip_filename}"; filename*=UTF-8\'\'{quoted_name}'
 
     return StreamingResponse(
         zip_buffer,
         media_type='application/zip',
-        headers={'Content-Disposition': content_disposition},
+        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(zip_filename, safe='')}"},
     )
 
 

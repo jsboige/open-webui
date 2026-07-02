@@ -38,6 +38,7 @@ from open_webui.models.config import Config
 
 
 async def seed_registered_defaults():
+    await Config.rename_prefix('rag.web', 'web')
     await Config.repair_flattened_dict_configs()
     await Config.seed_defaults(DEFAULT_CONFIG)
 
@@ -289,6 +290,16 @@ OLLAMA_BASE_URLS = [url.strip() for url in OLLAMA_BASE_URLS.split(';')]
 OLLAMA_BASE_URLS = OLLAMA_BASE_URLS
 
 OLLAMA_API_CONFIGS = {}
+_ollama_api_configs = os.getenv('OLLAMA_API_CONFIGS', '')
+if _ollama_api_configs:
+    try:
+        parsed = json.loads(_ollama_api_configs)
+        if isinstance(parsed, dict):
+            OLLAMA_API_CONFIGS = parsed
+        else:
+            log.warning('OLLAMA_API_CONFIGS must be a JSON object, ignoring')
+    except (json.JSONDecodeError, TypeError):
+        log.warning('OLLAMA_API_CONFIGS is not valid JSON, ignoring')
 
 ####################################
 # OPENAI_API
@@ -326,6 +337,16 @@ OPENAI_API_BASE_URLS = [
 OPENAI_API_BASE_URLS = OPENAI_API_BASE_URLS
 
 OPENAI_API_CONFIGS = {}
+_openai_api_configs = os.getenv('OPENAI_API_CONFIGS', '')
+if _openai_api_configs:
+    try:
+        parsed = json.loads(_openai_api_configs)
+        if isinstance(parsed, dict):
+            OPENAI_API_CONFIGS = parsed
+        else:
+            log.warning('OPENAI_API_CONFIGS must be a JSON object, ignoring')
+    except (json.JSONDecodeError, TypeError):
+        log.warning('OPENAI_API_CONFIGS is not valid JSON, ignoring')
 
 # Get the actual OpenAI API key based on the base URL
 OPENAI_API_KEY = ''
@@ -393,6 +414,11 @@ CODE_EXECUTION_JUPYTER_TIMEOUT = int(os.getenv('CODE_EXECUTION_JUPYTER_TIMEOUT',
 ENABLE_CODE_INTERPRETER = os.getenv('ENABLE_CODE_INTERPRETER', 'True').lower() == 'true'
 
 ENABLE_MEMORIES = os.getenv('ENABLE_MEMORIES', 'True').lower() == 'true'
+ENABLE_MEMORY_SYSTEM_CONTEXT = os.getenv('ENABLE_MEMORY_SYSTEM_CONTEXT', 'True').lower() == 'true'
+ENABLE_MEMORY_BACKGROUND_REVIEW = os.getenv('ENABLE_MEMORY_BACKGROUND_REVIEW', 'False').lower() == 'true'
+MEMORIES_REVIEW_INTERVAL_TURNS = int(os.getenv('MEMORIES_REVIEW_INTERVAL_TURNS', '10'))
+MEMORIES_USER_CHAR_LIMIT = int(os.getenv('MEMORIES_USER_CHAR_LIMIT', '2000'))
+MEMORIES_CONTEXT_CHAR_LIMIT = int(os.getenv('MEMORIES_CONTEXT_CHAR_LIMIT', '2000'))
 
 CODE_INTERPRETER_ENGINE = os.getenv('CODE_INTERPRETER_ENGINE', 'pyodide')
 
@@ -400,14 +426,28 @@ CODE_INTERPRETER_PROMPT_TEMPLATE = os.getenv('CODE_INTERPRETER_PROMPT_TEMPLATE',
 
 CODE_INTERPRETER_JUPYTER_URL = os.getenv('CODE_INTERPRETER_JUPYTER_URL', os.getenv('CODE_EXECUTION_JUPYTER_URL', ''))
 
-CODE_INTERPRETER_JUPYTER_AUTH = os.getenv( 'CODE_INTERPRETER_JUPYTER_AUTH', os.getenv('CODE_EXECUTION_JUPYTER_AUTH', ''), )
+CODE_INTERPRETER_JUPYTER_AUTH = os.getenv(
+    'CODE_INTERPRETER_JUPYTER_AUTH',
+    os.getenv('CODE_EXECUTION_JUPYTER_AUTH', ''),
+)
 
-CODE_INTERPRETER_JUPYTER_AUTH_TOKEN = os.getenv( 'CODE_INTERPRETER_JUPYTER_AUTH_TOKEN', os.getenv('CODE_EXECUTION_JUPYTER_AUTH_TOKEN', ''), )
+CODE_INTERPRETER_JUPYTER_AUTH_TOKEN = os.getenv(
+    'CODE_INTERPRETER_JUPYTER_AUTH_TOKEN',
+    os.getenv('CODE_EXECUTION_JUPYTER_AUTH_TOKEN', ''),
+)
 
 
-CODE_INTERPRETER_JUPYTER_AUTH_PASSWORD = os.getenv( 'CODE_INTERPRETER_JUPYTER_AUTH_PASSWORD', os.getenv('CODE_EXECUTION_JUPYTER_AUTH_PASSWORD', ''), )
+CODE_INTERPRETER_JUPYTER_AUTH_PASSWORD = os.getenv(
+    'CODE_INTERPRETER_JUPYTER_AUTH_PASSWORD',
+    os.getenv('CODE_EXECUTION_JUPYTER_AUTH_PASSWORD', ''),
+)
 
-CODE_INTERPRETER_JUPYTER_TIMEOUT = int( os.getenv( 'CODE_INTERPRETER_JUPYTER_TIMEOUT', os.getenv('CODE_EXECUTION_JUPYTER_TIMEOUT', '60'), ) )
+CODE_INTERPRETER_JUPYTER_TIMEOUT = int(
+    os.getenv(
+        'CODE_INTERPRETER_JUPYTER_TIMEOUT',
+        os.getenv('CODE_EXECUTION_JUPYTER_TIMEOUT', '60'),
+    )
+)
 
 CODE_INTERPRETER_BLOCKED_MODULES = [
     library.strip() for library in os.getenv('CODE_INTERPRETER_BLOCKED_MODULES', '').split(',') if library.strip()
@@ -829,7 +869,9 @@ DATALAB_MARKER_PAGINATE = os.getenv('DATALAB_MARKER_PAGINATE', 'false').lower() 
 
 DATALAB_MARKER_STRIP_EXISTING_OCR = os.getenv('DATALAB_MARKER_STRIP_EXISTING_OCR', 'false').lower() == 'true'
 
-DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION = os.getenv('DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION', 'false').lower() == 'true'
+DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION = (
+    os.getenv('DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION', 'false').lower() == 'true'
+)
 
 DATALAB_MARKER_FORMAT_LINES = os.getenv('DATALAB_MARKER_FORMAT_LINES', 'false').lower() == 'true'
 
@@ -891,6 +933,8 @@ MISTRAL_OCR_API_BASE_URL = os.getenv('MISTRAL_OCR_API_BASE_URL', 'https://api.mi
 
 MISTRAL_OCR_API_KEY = os.getenv('MISTRAL_OCR_API_KEY', '')
 
+MISTRAL_OCR_USE_BASE64 = os.getenv('MISTRAL_OCR_USE_BASE64', 'False').lower() == 'true'
+
 PADDLEOCR_VL_BASE_URL = os.getenv('PADDLEOCR_VL_BASE_URL', 'http://localhost:8080')
 
 PADDLEOCR_VL_TOKEN = os.getenv('PADDLEOCR_VL_TOKEN', '')
@@ -905,7 +949,9 @@ RAG_HYBRID_BM25_WEIGHT = float(os.getenv('RAG_HYBRID_BM25_WEIGHT', '0.5'))
 
 ENABLE_RAG_HYBRID_SEARCH = os.getenv('ENABLE_RAG_HYBRID_SEARCH', '').lower() == 'true'
 
-ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS = os.getenv('ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS', 'False').lower() == 'true'
+ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS = (
+    os.getenv('ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS', 'False').lower() == 'true'
+)
 
 RAG_FULL_CONTEXT = os.getenv('RAG_FULL_CONTEXT', 'False').lower() == 'true'
 
@@ -913,12 +959,20 @@ RAG_FILE_MAX_COUNT = int(os.getenv('RAG_FILE_MAX_COUNT')) if os.getenv('RAG_FILE
 
 RAG_FILE_MAX_SIZE = int(os.getenv('RAG_FILE_MAX_SIZE')) if os.getenv('RAG_FILE_MAX_SIZE') else None
 
-FILE_IMAGE_COMPRESSION_WIDTH = int(os.getenv('FILE_IMAGE_COMPRESSION_WIDTH')) if os.getenv('FILE_IMAGE_COMPRESSION_WIDTH') else None
+RAG_FILE_CONTENT_SEARCH_MAX_CHARS = int(os.getenv('RAG_FILE_CONTENT_SEARCH_MAX_CHARS', str(64 * 1024 * 1024)))
 
-FILE_IMAGE_COMPRESSION_HEIGHT = int(os.getenv('FILE_IMAGE_COMPRESSION_HEIGHT')) if os.getenv('FILE_IMAGE_COMPRESSION_HEIGHT') else None
+FILE_IMAGE_COMPRESSION_WIDTH = (
+    int(os.getenv('FILE_IMAGE_COMPRESSION_WIDTH')) if os.getenv('FILE_IMAGE_COMPRESSION_WIDTH') else None
+)
+
+FILE_IMAGE_COMPRESSION_HEIGHT = (
+    int(os.getenv('FILE_IMAGE_COMPRESSION_HEIGHT')) if os.getenv('FILE_IMAGE_COMPRESSION_HEIGHT') else None
+)
 
 
-RAG_ALLOWED_FILE_EXTENSIONS = [ext.strip() for ext in os.getenv('RAG_ALLOWED_FILE_EXTENSIONS', '').split(',') if ext.strip()]
+RAG_ALLOWED_FILE_EXTENSIONS = [
+    ext.strip() for ext in os.getenv('RAG_ALLOWED_FILE_EXTENSIONS', '').split(',') if ext.strip()
+]
 
 RAG_EMBEDDING_ENGINE = os.getenv('RAG_EMBEDDING_ENGINE', '')
 
@@ -929,13 +983,17 @@ PDF_LOADER_MODE = os.getenv('PDF_LOADER_MODE', 'page')
 RAG_EMBEDDING_MODEL = os.getenv('RAG_EMBEDDING_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')
 log.info(f'Embedding model set: {RAG_EMBEDDING_MODEL}')
 
+RAG_TOKENIZER_MODEL = os.getenv('RAG_TOKENIZER_MODEL', '')
+
 RAG_EMBEDDING_MODEL_AUTO_UPDATE = (
     not OFFLINE_MODE and os.getenv('RAG_EMBEDDING_MODEL_AUTO_UPDATE', 'True').lower() == 'true'
 )
 
 RAG_EMBEDDING_MODEL_TRUST_REMOTE_CODE = os.getenv('RAG_EMBEDDING_MODEL_TRUST_REMOTE_CODE', 'True').lower() == 'true'
 
-RAG_EMBEDDING_BATCH_SIZE = int(os.getenv('RAG_EMBEDDING_BATCH_SIZE') or os.getenv('RAG_EMBEDDING_OPENAI_BATCH_SIZE', '1'))
+RAG_EMBEDDING_BATCH_SIZE = int(
+    os.getenv('RAG_EMBEDDING_BATCH_SIZE') or os.getenv('RAG_EMBEDDING_OPENAI_BATCH_SIZE', '1')
+)
 
 ENABLE_ASYNC_EMBEDDING = os.getenv('ENABLE_ASYNC_EMBEDDING', 'True').lower() == 'true'
 
@@ -1058,14 +1116,23 @@ YOUTUBE_LOADER_PROXY_URL = os.getenv('YOUTUBE_LOADER_PROXY_URL', '')
 
 
 ####################################
-# Web Search (RAG)
+# Web Search
 ####################################
 
 ENABLE_WEB_SEARCH = os.getenv('ENABLE_WEB_SEARCH', 'False').lower() == 'true'
 
+ENABLE_WEB_SEARCH_CONFIRMATION = os.getenv('ENABLE_WEB_SEARCH_CONFIRMATION', 'False').lower() == 'true'
+
+WEB_SEARCH_CONFIRMATION_CONTENT = os.getenv(
+    'WEB_SEARCH_CONFIRMATION_CONTENT',
+    'Your query will be sent to the configured web search provider.',
+)
+
 WEB_SEARCH_ENGINE = os.getenv('WEB_SEARCH_ENGINE', '')
 
-BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL = os.getenv('BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL', 'False').lower() == 'true'
+BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL = (
+    os.getenv('BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL', 'False').lower() == 'true'
+)
 
 
 BYPASS_WEB_SEARCH_WEB_LOADER = os.getenv('BYPASS_WEB_SEARCH_WEB_LOADER', 'False').lower() == 'true'
@@ -1089,7 +1156,9 @@ WEB_SEARCH_DOMAIN_FILTER_LIST = web_search_domain_filter_list
 
 WEB_SEARCH_CONCURRENT_REQUESTS = int(os.getenv('WEB_SEARCH_CONCURRENT_REQUESTS', '0'))
 
-WEB_FETCH_MAX_CONTENT_LENGTH = int(os.getenv('WEB_FETCH_MAX_CONTENT_LENGTH')) if os.getenv('WEB_FETCH_MAX_CONTENT_LENGTH') else None
+WEB_FETCH_MAX_CONTENT_LENGTH = (
+    int(os.getenv('WEB_FETCH_MAX_CONTENT_LENGTH')) if os.getenv('WEB_FETCH_MAX_CONTENT_LENGTH') else None
+)
 
 WEB_LOADER_ENGINE = os.getenv('WEB_LOADER_ENGINE', '')
 
@@ -1138,6 +1207,10 @@ SERPER_API_KEY = os.getenv('SERPER_API_KEY', '')
 
 SERPLY_API_KEY = os.getenv('SERPLY_API_KEY', '')
 
+SERPHOUSE_API_KEY = os.getenv('SERPHOUSE_API_KEY', '')
+
+SERPHOUSE_DOMAIN = os.getenv('SERPHOUSE_DOMAIN', 'google.com')
+
 DDGS_BACKEND = os.getenv('DDGS_BACKEND', 'auto')
 
 JINA_API_KEY = os.getenv('JINA_API_KEY', '')
@@ -1172,6 +1245,12 @@ PERPLEXITY_SEARCH_CONTEXT_USAGE = os.getenv('PERPLEXITY_SEARCH_CONTEXT_USAGE', '
 
 PERPLEXITY_SEARCH_API_URL = os.getenv('PERPLEXITY_SEARCH_API_URL', 'https://api.perplexity.ai/search')
 
+MICROSOFT_WEB_IQ_API_BASE_URL = os.getenv('MICROSOFT_WEB_IQ_API_BASE_URL', 'https://api.microsoft.ai/v3')
+
+MICROSOFT_WEB_IQ_API_KEY = os.getenv('MICROSOFT_WEB_IQ_API_KEY', '')
+
+MICROSOFT_WEB_IQ_LANGUAGE = os.getenv('MICROSOFT_WEB_IQ_LANGUAGE', 'en')
+
 SOUGOU_API_SID = os.getenv('SOUGOU_API_SID', '')
 
 SOUGOU_API_SK = os.getenv('SOUGOU_API_SK', '')
@@ -1204,7 +1283,7 @@ YANDEX_WEB_SEARCH_API_KEY = os.getenv('YANDEX_WEB_SEARCH_API_KEY', '')
 
 YANDEX_WEB_SEARCH_CONFIG = os.getenv('YANDEX_WEB_SEARCH_CONFIG', '')
 
-YOUCOM_API_KEY = os.getenv('YOUCOM_API_KEY', '')
+YOUCOM_API_KEY = os.getenv('YOUCOM_API_KEY', os.getenv('YDC_API_KEY', ''))
 
 LINKUP_API_KEY = os.getenv('LINKUP_API_KEY', '')
 
@@ -1402,6 +1481,8 @@ IMAGE_EDIT_MODEL = os.getenv('IMAGE_EDIT_MODEL', '')
 
 IMAGE_EDIT_SIZE = os.getenv('IMAGE_EDIT_SIZE', '')
 
+ENABLE_OPENAI_IMAGE_EDIT_NORMALIZATION = os.getenv('ENABLE_OPENAI_IMAGE_EDIT_NORMALIZATION', 'true').lower() == 'true'
+
 IMAGES_EDIT_OPENAI_API_BASE_URL = os.getenv('IMAGES_EDIT_OPENAI_API_BASE_URL', OPENAI_API_BASE_URL)
 IMAGES_EDIT_OPENAI_API_VERSION = os.getenv('IMAGES_EDIT_OPENAI_API_VERSION', '')
 
@@ -1451,13 +1532,26 @@ AUDIO_STT_OPENAI_API_BASE_URL = os.getenv('AUDIO_STT_OPENAI_API_BASE_URL', OPENA
 
 AUDIO_STT_OPENAI_API_KEY = os.getenv('AUDIO_STT_OPENAI_API_KEY', OPENAI_API_KEY)
 
+AUDIO_STT_OPENAI_API_REQUEST_FORMAT = os.getenv('AUDIO_STT_OPENAI_API_REQUEST_FORMAT', 'multipart')
+
 AUDIO_STT_ENGINE = os.getenv('AUDIO_STT_ENGINE', '')
 
 AUDIO_STT_MODEL = os.getenv('AUDIO_STT_MODEL', '')
 
-AUDIO_STT_SUPPORTED_CONTENT_TYPES = [ content_type.strip() for content_type in os.getenv('AUDIO_STT_SUPPORTED_CONTENT_TYPES', '').split(',') if content_type.strip() ]
+AUDIO_STT_SUPPORTED_CONTENT_TYPES = [
+    content_type.strip()
+    for content_type in os.getenv('AUDIO_STT_SUPPORTED_CONTENT_TYPES', '').split(',')
+    if content_type.strip()
+]
 
-AUDIO_STT_ALLOWED_EXTENSIONS = [ ext.strip() for ext in os.getenv( 'AUDIO_STT_ALLOWED_EXTENSIONS', 'mp3,wav,m4a,webm,ogg,flac,mp4,mpga,mpeg', ).split(',') if ext.strip() ]
+AUDIO_STT_ALLOWED_EXTENSIONS = [
+    ext.strip()
+    for ext in os.getenv(
+        'AUDIO_STT_ALLOWED_EXTENSIONS',
+        'mp3,wav,m4a,webm,ogg,flac,mp4,mpga,mpeg',
+    ).split(',')
+    if ext.strip()
+]
 
 AUDIO_STT_AZURE_API_KEY = os.getenv('AUDIO_STT_AZURE_API_KEY', '')
 
@@ -1502,7 +1596,9 @@ AUDIO_TTS_AZURE_SPEECH_REGION = os.getenv('AUDIO_TTS_AZURE_SPEECH_REGION', '')
 
 AUDIO_TTS_AZURE_SPEECH_BASE_URL = os.getenv('AUDIO_TTS_AZURE_SPEECH_BASE_URL', '')
 
-AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT = os.getenv('AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT', 'audio-24khz-160kbitrate-mono-mp3')
+AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT = os.getenv(
+    'AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT', 'audio-24khz-160kbitrate-mono-mp3'
+)
 
 AUDIO_TTS_MISTRAL_API_KEY = os.getenv('AUDIO_TTS_MISTRAL_API_KEY', '')
 
@@ -1643,6 +1739,14 @@ USER_PERMISSIONS_WORKSPACE_TOOLS_EXPORT = (
     os.getenv('USER_PERMISSIONS_WORKSPACE_TOOLS_EXPORT', 'False').lower() == 'true'
 )
 
+USER_PERMISSIONS_WORKSPACE_SKILLS_IMPORT = (
+    os.getenv('USER_PERMISSIONS_WORKSPACE_SKILLS_IMPORT', 'False').lower() == 'true'
+)
+
+USER_PERMISSIONS_WORKSPACE_SKILLS_EXPORT = (
+    os.getenv('USER_PERMISSIONS_WORKSPACE_SKILLS_EXPORT', 'False').lower() == 'true'
+)
+
 
 USER_PERMISSIONS_WORKSPACE_MODELS_ALLOW_SHARING = (
     os.getenv('USER_PERMISSIONS_WORKSPACE_MODELS_ALLOW_SHARING', 'False').lower() == 'true'
@@ -1692,9 +1796,7 @@ USER_PERMISSIONS_NOTES_ALLOW_PUBLIC_SHARING = (
     os.getenv('USER_PERMISSIONS_NOTES_ALLOW_PUBLIC_SHARING', 'False').lower() == 'true'
 )
 
-USER_PERMISSIONS_FOLDERS_ALLOW_SHARING = (
-    os.getenv('USER_PERMISSIONS_FOLDERS_ALLOW_SHARING', 'False').lower() == 'true'
-)
+USER_PERMISSIONS_FOLDERS_ALLOW_SHARING = os.getenv('USER_PERMISSIONS_FOLDERS_ALLOW_SHARING', 'False').lower() == 'true'
 
 
 USER_PERMISSIONS_CALENDAR_ALLOW_PUBLIC_SHARING = (
@@ -1806,6 +1908,8 @@ DEFAULT_USER_PERMISSIONS = {
         'prompts_export': USER_PERMISSIONS_WORKSPACE_PROMPTS_EXPORT,
         'tools_import': USER_PERMISSIONS_WORKSPACE_TOOLS_IMPORT,
         'tools_export': USER_PERMISSIONS_WORKSPACE_TOOLS_EXPORT,
+        'skills_import': USER_PERMISSIONS_WORKSPACE_SKILLS_IMPORT,
+        'skills_export': USER_PERMISSIONS_WORKSPACE_SKILLS_EXPORT,
     },
     'sharing': {
         'models': USER_PERMISSIONS_WORKSPACE_MODELS_ALLOW_SHARING,
@@ -1886,6 +1990,8 @@ ENABLE_AUTOMATIONS = os.getenv('ENABLE_AUTOMATIONS', 'True').lower() == 'true'
 AUTOMATION_MAX_COUNT = os.getenv('AUTOMATION_MAX_COUNT', '')
 
 AUTOMATION_MIN_INTERVAL = os.getenv('AUTOMATION_MIN_INTERVAL', '')
+
+AUTOMATION_AUTH_TOKEN_EXPIRES_IN = os.getenv('AUTOMATION_AUTH_TOKEN_EXPIRES_IN', '1h')
 
 ENABLE_NOTES = os.getenv('ENABLE_NOTES', 'True').lower() == 'true'
 
@@ -2272,7 +2378,13 @@ Responses from models: {{responses}}"""
 
 ENABLE_API_KEYS = os.getenv('ENABLE_API_KEYS', 'False').lower() == 'true'
 
-ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS = os.getenv( 'ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS', os.getenv('ENABLE_API_KEY_ENDPOINT_RESTRICTIONS', 'False'), ).lower() == 'true'
+ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS = (
+    os.getenv(
+        'ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS',
+        os.getenv('ENABLE_API_KEY_ENDPOINT_RESTRICTIONS', 'False'),
+    ).lower()
+    == 'true'
+)
 
 API_KEYS_ALLOWED_ENDPOINTS = os.getenv('API_KEYS_ALLOWED_ENDPOINTS', os.getenv('API_KEY_ALLOWED_ENDPOINTS', ''))
 
@@ -2328,7 +2440,10 @@ MICROSOFT_CLIENT_TENANT_ID = os.getenv('MICROSOFT_CLIENT_TENANT_ID', '')
 
 MICROSOFT_CLIENT_LOGIN_BASE_URL = os.getenv('MICROSOFT_CLIENT_LOGIN_BASE_URL', 'https://login.microsoftonline.com')
 
-MICROSOFT_CLIENT_PICTURE_URL = os.getenv( 'MICROSOFT_CLIENT_PICTURE_URL', 'https://graph.microsoft.com/v1.0/me/photo/$value', )
+MICROSOFT_CLIENT_PICTURE_URL = os.getenv(
+    'MICROSOFT_CLIENT_PICTURE_URL',
+    'https://graph.microsoft.com/v1.0/me/photo/$value',
+)
 
 
 MICROSOFT_OAUTH_SCOPE = os.getenv('MICROSOFT_OAUTH_SCOPE', 'openid email profile')
@@ -2401,9 +2516,15 @@ OAUTH_ROLES_CLAIM = os.getenv('OAUTH_ROLES_CLAIM', 'roles')
 
 OAUTH_ROLES_SEPARATOR = os.getenv('OAUTH_ROLES_SEPARATOR', ',')
 
-OAUTH_ALLOWED_ROLES = [ role.strip() for role in os.getenv('OAUTH_ALLOWED_ROLES', f'user{OAUTH_ROLES_SEPARATOR}admin').split(OAUTH_ROLES_SEPARATOR) if role ]
+OAUTH_ALLOWED_ROLES = [
+    role.strip()
+    for role in os.getenv('OAUTH_ALLOWED_ROLES', f'user{OAUTH_ROLES_SEPARATOR}admin').split(OAUTH_ROLES_SEPARATOR)
+    if role
+]
 
-OAUTH_ADMIN_ROLES = [role.strip() for role in os.getenv('OAUTH_ADMIN_ROLES', 'admin').split(OAUTH_ROLES_SEPARATOR) if role]
+OAUTH_ADMIN_ROLES = [
+    role.strip() for role in os.getenv('OAUTH_ADMIN_ROLES', 'admin').split(OAUTH_ROLES_SEPARATOR) if role
+]
 
 OAUTH_ALLOWED_DOMAINS = [domain.strip() for domain in os.getenv('OAUTH_ALLOWED_DOMAINS', '*').split(',')]
 
@@ -2500,11 +2621,7 @@ def load_oauth_providers():
             'sub_claim': 'id',
         }
 
-    if (
-        OAUTH_CLIENT_ID
-        and (OAUTH_CLIENT_SECRET or OAUTH_CODE_CHALLENGE_METHOD)
-        and OPENID_PROVIDER_URL
-    ):
+    if OAUTH_CLIENT_ID and (OAUTH_CLIENT_SECRET or OAUTH_CODE_CHALLENGE_METHOD) and OPENID_PROVIDER_URL:
 
         def oidc_oauth_register(oauth: OAuth):
             client_kwargs = {
@@ -2647,6 +2764,11 @@ DEFAULT_CONFIG = {
     'code_execution.jupyter.timeout': CODE_EXECUTION_JUPYTER_TIMEOUT,
     'code_interpreter.enable': ENABLE_CODE_INTERPRETER,
     'memories.enable': ENABLE_MEMORIES,
+    'memories.system_context.enable': ENABLE_MEMORY_SYSTEM_CONTEXT,
+    'memories.background_review.enable': ENABLE_MEMORY_BACKGROUND_REVIEW,
+    'memories.review_interval_turns': MEMORIES_REVIEW_INTERVAL_TURNS,
+    'memories.user_char_limit': MEMORIES_USER_CHAR_LIMIT,
+    'memories.context_char_limit': MEMORIES_CONTEXT_CHAR_LIMIT,
     'code_interpreter.engine': CODE_INTERPRETER_ENGINE,
     'code_interpreter.prompt_template': CODE_INTERPRETER_PROMPT_TEMPLATE,
     'code_interpreter.jupyter.url': CODE_INTERPRETER_JUPYTER_URL,
@@ -2690,6 +2812,7 @@ DEFAULT_CONFIG = {
     'rag.document_intelligence_model': DOCUMENT_INTELLIGENCE_MODEL,
     'rag.mistral_ocr_api_base_url': MISTRAL_OCR_API_BASE_URL,
     'rag.mistral_ocr_api_key': MISTRAL_OCR_API_KEY,
+    'rag.mistral_ocr_use_base64': MISTRAL_OCR_USE_BASE64,
     'rag.paddleocr_vl_base_url': PADDLEOCR_VL_BASE_URL,
     'rag.paddleocr_vl_token': PADDLEOCR_VL_TOKEN,
     'rag.bypass_embedding_and_retrieval': BYPASS_EMBEDDING_AND_RETRIEVAL,
@@ -2709,6 +2832,7 @@ DEFAULT_CONFIG = {
     'rag.pdf_extract_images': PDF_EXTRACT_IMAGES,
     'rag.pdf_loader_mode': PDF_LOADER_MODE,
     'rag.embedding_model': RAG_EMBEDDING_MODEL,
+    'rag.tokenizer_model': RAG_TOKENIZER_MODEL,
     'rag.embedding_batch_size': RAG_EMBEDDING_BATCH_SIZE,
     'rag.enable_async_embedding': ENABLE_ASYNC_EMBEDDING,
     'rag.embedding_concurrent_requests': RAG_EMBEDDING_CONCURRENT_REQUESTS,
@@ -2734,72 +2858,79 @@ DEFAULT_CONFIG = {
     'rag.ollama.api_key': RAG_OLLAMA_API_KEY,
     'rag.youtube_loader_language': YOUTUBE_LOADER_LANGUAGE,
     'rag.youtube_loader_proxy_url': YOUTUBE_LOADER_PROXY_URL,
-    'rag.web.search.enable': ENABLE_WEB_SEARCH,
-    'rag.web.search.engine': WEB_SEARCH_ENGINE,
-    'rag.web.search.bypass_embedding_and_retrieval': BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL,
-    'rag.web.search.bypass_web_loader': BYPASS_WEB_SEARCH_WEB_LOADER,
-    'rag.web.search.result_count': WEB_SEARCH_RESULT_COUNT,
-    'rag.web.search.domain.filter_list': WEB_SEARCH_DOMAIN_FILTER_LIST,
-    'rag.web.search.concurrent_requests': WEB_SEARCH_CONCURRENT_REQUESTS,
-    'rag.web.fetch.max_content_length': WEB_FETCH_MAX_CONTENT_LENGTH,
-    'rag.web.loader.engine': WEB_LOADER_ENGINE,
-    'rag.web.loader.concurrent_requests': WEB_LOADER_CONCURRENT_REQUESTS,
-    'rag.web.loader.timeout': WEB_LOADER_TIMEOUT,
-    'rag.web.loader.ssl_verification': ENABLE_WEB_LOADER_SSL_VERIFICATION,
-    'rag.web.search.trust_env': WEB_SEARCH_TRUST_ENV,
-    'rag.web.search.ollama_cloud_api_key': OLLAMA_CLOUD_WEB_SEARCH_API_KEY,
-    'rag.web.search.searxng_query_url': SEARXNG_QUERY_URL,
-    'rag.web.search.searxng_language': SEARXNG_LANGUAGE,
-    'rag.web.search.yacy_query_url': YACY_QUERY_URL,
-    'rag.web.search.yacy_username': YACY_USERNAME,
-    'rag.web.search.yacy_password': YACY_PASSWORD,
-    'rag.web.search.google_pse_api_key': GOOGLE_PSE_API_KEY,
-    'rag.web.search.google_pse_engine_id': GOOGLE_PSE_ENGINE_ID,
-    'rag.web.search.brave_search_api_key': BRAVE_SEARCH_API_KEY,
-    'rag.web.search.brave_search_context_tokens': BRAVE_SEARCH_CONTEXT_TOKENS,
-    'rag.web.search.kagi_search_api_key': KAGI_SEARCH_API_KEY,
-    'rag.web.search.mojeek_search_api_key': MOJEEK_SEARCH_API_KEY,
-    'rag.web.search.bocha_search_api_key': BOCHA_SEARCH_API_KEY,
-    'rag.web.search.serpstack_api_key': SERPSTACK_API_KEY,
-    'rag.web.search.serpstack_https': SERPSTACK_HTTPS,
-    'rag.web.search.serper_api_key': SERPER_API_KEY,
-    'rag.web.search.serply_api_key': SERPLY_API_KEY,
-    'rag.web.search.ddgs_backend': DDGS_BACKEND,
-    'rag.web.search.jina_api_key': JINA_API_KEY,
-    'rag.web.search.jina_api_base_url': JINA_API_BASE_URL,
-    'rag.web.search.searchapi_api_key': SEARCHAPI_API_KEY,
-    'rag.web.search.searchapi_engine': SEARCHAPI_ENGINE,
-    'rag.web.search.serpapi_api_key': SERPAPI_API_KEY,
-    'rag.web.search.serpapi_engine': SERPAPI_ENGINE,
-    'rag.web.search.bing_search_v7_endpoint': BING_SEARCH_V7_ENDPOINT,
-    'rag.web.search.bing_search_v7_subscription_key': BING_SEARCH_V7_SUBSCRIPTION_KEY,
-    'rag.web.search.azure_ai_search_api_key': AZURE_AI_SEARCH_API_KEY,
-    'rag.web.search.azure_ai_search_endpoint': AZURE_AI_SEARCH_ENDPOINT,
-    'rag.web.search.azure_ai_search_index_name': AZURE_AI_SEARCH_INDEX_NAME,
-    'rag.web.search.exa_api_key': EXA_API_KEY,
-    'rag.web.search.perplexity_api_key': PERPLEXITY_API_KEY,
-    'rag.web.search.perplexity_model': PERPLEXITY_MODEL,
-    'rag.web.search.perplexity_search_context_usage': PERPLEXITY_SEARCH_CONTEXT_USAGE,
-    'rag.web.search.perplexity_search_api_url': PERPLEXITY_SEARCH_API_URL,
-    'rag.web.search.sougou_api_sid': SOUGOU_API_SID,
-    'rag.web.search.sougou_api_sk': SOUGOU_API_SK,
-    'rag.web.search.tavily_api_key': TAVILY_API_KEY,
-    'rag.web.search.tavily_extract_depth': TAVILY_EXTRACT_DEPTH,
-    'rag.web.loader.playwright_ws_url': PLAYWRIGHT_WS_URL,
-    'rag.web.loader.playwright_timeout': PLAYWRIGHT_TIMEOUT,
-    'rag.web.loader.firecrawl_api_key': FIRECRAWL_API_KEY,
-    'rag.web.loader.firecrawl_api_url': FIRECRAWL_API_BASE_URL,
-    'rag.web.loader.firecrawl_timeout': FIRECRAWL_TIMEOUT,
-    'rag.web.search.external_web_search_url': EXTERNAL_WEB_SEARCH_URL,
-    'rag.web.search.external_web_search_api_key': EXTERNAL_WEB_SEARCH_API_KEY,
-    'rag.web.loader.external_web_loader_url': EXTERNAL_WEB_LOADER_URL,
-    'rag.web.loader.external_web_loader_api_key': EXTERNAL_WEB_LOADER_API_KEY,
-    'rag.web.search.yandex_web_search_url': YANDEX_WEB_SEARCH_URL,
-    'rag.web.search.yandex_web_search_api_key': YANDEX_WEB_SEARCH_API_KEY,
-    'rag.web.search.yandex_web_search_config': YANDEX_WEB_SEARCH_CONFIG,
-    'rag.web.search.youcom_api_key': YOUCOM_API_KEY,
-    'rag.web.search.linkup_api_key': LINKUP_API_KEY,
-    'rag.web.search.linkup_search_params': LINKUP_SEARCH_PARAMS,
+    'web.search.enable': ENABLE_WEB_SEARCH,
+    'web.search.confirmation.enable': ENABLE_WEB_SEARCH_CONFIRMATION,
+    'web.search.confirmation.content': WEB_SEARCH_CONFIRMATION_CONTENT,
+    'web.search.engine': WEB_SEARCH_ENGINE,
+    'web.search.bypass_embedding_and_retrieval': BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL,
+    'web.search.bypass_web_loader': BYPASS_WEB_SEARCH_WEB_LOADER,
+    'web.search.result_count': WEB_SEARCH_RESULT_COUNT,
+    'web.search.domain.filter_list': WEB_SEARCH_DOMAIN_FILTER_LIST,
+    'web.search.concurrent_requests': WEB_SEARCH_CONCURRENT_REQUESTS,
+    'web.fetch.max_content_length': WEB_FETCH_MAX_CONTENT_LENGTH,
+    'web.loader.engine': WEB_LOADER_ENGINE,
+    'web.loader.concurrent_requests': WEB_LOADER_CONCURRENT_REQUESTS,
+    'web.loader.timeout': WEB_LOADER_TIMEOUT,
+    'web.loader.ssl_verification': ENABLE_WEB_LOADER_SSL_VERIFICATION,
+    'web.search.trust_env': WEB_SEARCH_TRUST_ENV,
+    'web.search.ollama_cloud_api_key': OLLAMA_CLOUD_WEB_SEARCH_API_KEY,
+    'web.search.searxng_query_url': SEARXNG_QUERY_URL,
+    'web.search.searxng_language': SEARXNG_LANGUAGE,
+    'web.search.yacy_query_url': YACY_QUERY_URL,
+    'web.search.yacy_username': YACY_USERNAME,
+    'web.search.yacy_password': YACY_PASSWORD,
+    'web.search.google_pse_api_key': GOOGLE_PSE_API_KEY,
+    'web.search.google_pse_engine_id': GOOGLE_PSE_ENGINE_ID,
+    'web.search.brave_search_api_key': BRAVE_SEARCH_API_KEY,
+    'web.search.brave_search_context_tokens': BRAVE_SEARCH_CONTEXT_TOKENS,
+    'web.search.kagi_search_api_key': KAGI_SEARCH_API_KEY,
+    'web.search.mojeek_search_api_key': MOJEEK_SEARCH_API_KEY,
+    'web.search.bocha_search_api_key': BOCHA_SEARCH_API_KEY,
+    'web.search.serpstack_api_key': SERPSTACK_API_KEY,
+    'web.search.serpstack_https': SERPSTACK_HTTPS,
+    'web.search.serper_api_key': SERPER_API_KEY,
+    'web.search.serply_api_key': SERPLY_API_KEY,
+    'web.search.serphouse_api_key': SERPHOUSE_API_KEY,
+    'web.search.serphouse_domain': SERPHOUSE_DOMAIN,
+    'web.search.ddgs_backend': DDGS_BACKEND,
+    'web.search.jina_api_key': JINA_API_KEY,
+    'web.search.jina_api_base_url': JINA_API_BASE_URL,
+    'web.search.searchapi_api_key': SEARCHAPI_API_KEY,
+    'web.search.searchapi_engine': SEARCHAPI_ENGINE,
+    'web.search.serpapi_api_key': SERPAPI_API_KEY,
+    'web.search.serpapi_engine': SERPAPI_ENGINE,
+    'web.search.bing_search_v7_endpoint': BING_SEARCH_V7_ENDPOINT,
+    'web.search.bing_search_v7_subscription_key': BING_SEARCH_V7_SUBSCRIPTION_KEY,
+    'web.search.azure_ai_search_api_key': AZURE_AI_SEARCH_API_KEY,
+    'web.search.azure_ai_search_endpoint': AZURE_AI_SEARCH_ENDPOINT,
+    'web.search.azure_ai_search_index_name': AZURE_AI_SEARCH_INDEX_NAME,
+    'web.search.exa_api_key': EXA_API_KEY,
+    'web.search.perplexity_api_key': PERPLEXITY_API_KEY,
+    'web.search.perplexity_model': PERPLEXITY_MODEL,
+    'web.search.perplexity_search_context_usage': PERPLEXITY_SEARCH_CONTEXT_USAGE,
+    'web.search.perplexity_search_api_url': PERPLEXITY_SEARCH_API_URL,
+    'web.search.microsoft_web_iq_api_base_url': MICROSOFT_WEB_IQ_API_BASE_URL,
+    'web.search.microsoft_web_iq_api_key': MICROSOFT_WEB_IQ_API_KEY,
+    'web.search.microsoft_web_iq_language': MICROSOFT_WEB_IQ_LANGUAGE,
+    'web.search.sougou_api_sid': SOUGOU_API_SID,
+    'web.search.sougou_api_sk': SOUGOU_API_SK,
+    'web.search.tavily_api_key': TAVILY_API_KEY,
+    'web.search.tavily_extract_depth': TAVILY_EXTRACT_DEPTH,
+    'web.loader.playwright_ws_url': PLAYWRIGHT_WS_URL,
+    'web.loader.playwright_timeout': PLAYWRIGHT_TIMEOUT,
+    'web.loader.firecrawl_api_key': FIRECRAWL_API_KEY,
+    'web.loader.firecrawl_api_url': FIRECRAWL_API_BASE_URL,
+    'web.loader.firecrawl_timeout': FIRECRAWL_TIMEOUT,
+    'web.search.external_web_search_url': EXTERNAL_WEB_SEARCH_URL,
+    'web.search.external_web_search_api_key': EXTERNAL_WEB_SEARCH_API_KEY,
+    'web.loader.external_web_loader_url': EXTERNAL_WEB_LOADER_URL,
+    'web.loader.external_web_loader_api_key': EXTERNAL_WEB_LOADER_API_KEY,
+    'web.search.yandex_web_search_url': YANDEX_WEB_SEARCH_URL,
+    'web.search.yandex_web_search_api_key': YANDEX_WEB_SEARCH_API_KEY,
+    'web.search.yandex_web_search_config': YANDEX_WEB_SEARCH_CONFIG,
+    'web.search.youcom_api_key': YOUCOM_API_KEY,
+    'web.search.linkup_api_key': LINKUP_API_KEY,
+    'web.search.linkup_search_params': LINKUP_SEARCH_PARAMS,
     'image_generation.enable': ENABLE_IMAGE_GENERATION,
     'image_generation.engine': IMAGE_GENERATION_ENGINE,
     'image_generation.model': IMAGE_GENERATION_MODEL,
@@ -2837,6 +2968,7 @@ DEFAULT_CONFIG = {
     'audio.stt.deepgram.api_key': DEEPGRAM_API_KEY,
     'audio.stt.openai.api_base_url': AUDIO_STT_OPENAI_API_BASE_URL,
     'audio.stt.openai.api_key': AUDIO_STT_OPENAI_API_KEY,
+    'audio.stt.openai.api_request_format': AUDIO_STT_OPENAI_API_REQUEST_FORMAT,
     'audio.stt.engine': AUDIO_STT_ENGINE,
     'audio.stt.model': AUDIO_STT_MODEL,
     'audio.stt.supported_content_types': AUDIO_STT_SUPPORTED_CONTENT_TYPES,
@@ -2886,6 +3018,7 @@ DEFAULT_CONFIG = {
     'automations.enable': ENABLE_AUTOMATIONS,
     'automations.max_count': AUTOMATION_MAX_COUNT,
     'automations.min_interval': AUTOMATION_MIN_INTERVAL,
+    'automations.auth_token_expires_in': AUTOMATION_AUTH_TOKEN_EXPIRES_IN,
     'notes.enable': ENABLE_NOTES,
     'users.enable_status': ENABLE_USER_STATUS,
     'evaluation.arena.enable': ENABLE_EVALUATION_ARENA_MODELS,

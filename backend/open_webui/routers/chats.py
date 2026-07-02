@@ -37,7 +37,6 @@ from open_webui.utils.access_control import filter_allowed_access_grants, has_pe
 from open_webui.utils.access_control.folders import has_folder_access
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.context_compaction import compact_chat_branch
-from open_webui.utils.middleware import serialize_output
 from open_webui.utils.misc import get_message_list
 from open_webui.utils.models import get_all_models
 from pydantic import BaseModel
@@ -46,6 +45,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+SEARCH_FILTER_PREFIXES = ('tag:', 'folder:', 'pinned:', 'archived:', 'shared:')
 
 CHAT_CONFIG_KEYS = {
     'ENABLE_CONTEXT_COMPACTION': 'chat.context_compaction.enable',
@@ -62,6 +63,43 @@ class ChatConfigForm(BaseModel):
 
 class CompactChatForm(BaseModel):
     model: str | None = None
+
+
+def chat_search_content_text(text: str) -> str:
+    words = text.lower().strip().split(' ')
+    return ' '.join(word for word in words if not word.startswith(SEARCH_FILTER_PREFIXES)).strip()
+
+
+def chat_search_snippet(chat: dict, search_text: str, max_length: int = 200) -> str | None:
+    if not search_text:
+        return None
+
+    messages = chat.get('messages', [])
+    if isinstance(messages, dict):
+        messages = messages.values()
+
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+
+        content = message.get('content')
+        if not isinstance(content, str):
+            continue
+
+        index = content.lower().find(search_text)
+        if index == -1:
+            continue
+
+        start = max(index - max_length // 2, 0)
+        end = min(start + max_length, len(content))
+        if index + len(search_text) > end:
+            end = min(index + len(search_text), len(content))
+            start = max(end - max_length, 0)
+
+        snippet = ' '.join(content[start:end].split())
+        return f'{"..." if start else ""}{snippet}{"..." if end < len(content) else ""}'
+
+    return None
 
 
 async def get_chat_config_values() -> dict:
@@ -536,9 +574,7 @@ async def delete_all_user_chats(
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    if user.role == 'user' and not await has_permission(
-        user.id, 'chat.delete', await Config.get('user.permissions')
-    ):
+    if user.role == 'user' and not await has_permission(user.id, 'chat.delete', await Config.get('user.permissions')):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
@@ -550,7 +586,8 @@ async def delete_all_user_chats(
             request,
             EVENTS.CHAT_DELETED_ALL,
             actor=user,
-            subject_id=user.id, subject_type='user',
+            subject_id=user.id,
+            subject_type='user',
         )
     return result
 
@@ -704,10 +741,10 @@ async def search_user_chats(
     limit = 60
     skip = (page - 1) * limit
 
-    chat_list = [
-        ChatTitleIdResponse(**chat.model_dump())
-        for chat in await Chats.get_chats_by_user_id_and_search_text(user.id, text, skip=skip, limit=limit, db=db)
-    ]
+    search_text = chat_search_content_text(text)
+    chat_list = []
+    for chat in await Chats.get_chats_by_user_id_and_search_text(user.id, text, skip=skip, limit=limit, db=db):
+        chat_list.append(ChatTitleIdResponse(**chat.model_dump(), snippet=chat_search_snippet(chat.chat, search_text)))
 
     # Delete tag if no chat is found
     words = text.strip().split(' ')
@@ -962,7 +999,8 @@ async def unshare_all_chats(
             request,
             EVENTS.CHAT_UNSHARED,
             actor=user,
-            subject_id=user.id, subject_type='user',
+            subject_id=user.id,
+            subject_type='user',
             data={'count': len(chat_ids), 'chat_ids': chat_ids},
         )
     return result
@@ -1176,22 +1214,16 @@ async def update_chat_by_id(
     chat = await Chats.get_chat_by_id_and_user_id(id, user.id, db=db)
     if chat:
         updated_chat = {**chat.chat, **form_data.chat}
-
-        # Re-derive content from output for assistant messages so that frontend
-        # edits to output items are reflected in content. Only when output
-        # actually changed — otherwise content set independently of output
-        # (e.g. a `replace` event or an outlet filter footer) would be reverted.
-        existing_messages = (chat.chat.get('history') or {}).get('messages') or {}
-        for msg_id, msg in updated_chat.get('history', {}).get('messages', {}).items():
-            if msg.get('role') == 'assistant' and msg.get('output'):
-                if msg.get('output') != existing_messages.get(msg_id, {}).get('output'):
-                    msg['content'] = serialize_output(msg['output'])
+        if 'history' in form_data.chat:
+            updated_chat['history'] = Chats.merge_history(
+                chat.chat.get('history'),
+                form_data.chat.get('history'),
+            )
 
         chat = await Chats.update_chat_by_id(id, updated_chat, db=db)
 
-        # Reconcile chat_message rows with the committed blob.
-        # This is the only caller where the frontend pushes a full
-        # history with potential edits, deletions, or new branches.
+        # Reconcile chat_message rows without inferring deletes from missing IDs.
+        # Message deletion has its own endpoint below.
         messages = (updated_chat.get('history') or {}).get('messages') or {}
         if messages:
             await Chats.reconcile_messages_by_chat_id(id, user.id, messages)
@@ -1276,6 +1308,45 @@ async def update_chat_message_by_id(
         actor=user,
         subject_id=message_id,
         data={'chat_id': id, 'content_preview': form_data.content[:300]},
+    )
+    return ChatResponse(**chat.model_dump())
+
+
+@router.delete('/{id}/messages/{message_id}', response_model=ChatResponse | None)
+async def delete_chat_message_by_id(
+    request: Request,
+    id: str,
+    message_id: str,
+    user=Depends(get_verified_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    chat = await Chats.get_chat_by_id(id, db=db)
+
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+
+    if chat.user_id != user.id and user.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+
+    chat = await Chats.delete_message_from_chat_by_id_and_message_id(id, message_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+
+    await publish_event(
+        request,
+        EVENTS.MESSAGE_DELETED,
+        actor=user,
+        subject_id=message_id,
+        data={'chat_id': id},
     )
     return ChatResponse(**chat.model_dump())
 
@@ -1431,7 +1502,8 @@ async def pin_chat_by_id(
             request,
             EVENTS.CHAT_PINNED if chat.pinned else EVENTS.CHAT_UNPINNED,
             actor=user,
-            subject_id=id, subject_type='chat',
+            subject_id=id,
+            subject_type='chat',
         )
         return chat
     else:
@@ -1604,7 +1676,8 @@ async def archive_chat_by_id(
             request,
             EVENTS.CHAT_ARCHIVED if chat.archived else EVENTS.CHAT_UNARCHIVED,
             actor=user,
-            subject_id=id, subject_type='chat',
+            subject_id=id,
+            subject_type='chat',
         )
         return ChatResponse(**chat.model_dump())
     else:
@@ -1621,9 +1694,7 @@ async def share_chat_by_id(
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    if user.role != 'admin' and not await has_permission(
-        user.id, 'chat.share', await Config.get('user.permissions')
-    ):
+    if user.role != 'admin' and not await has_permission(user.id, 'chat.share', await Config.get('user.permissions')):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
 
     chat = await Chats.get_chat_by_id_and_user_id(id, user.id, db=db)
@@ -1674,11 +1745,11 @@ async def delete_shared_chat_by_id(
     if not chat:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
 
-    if not chat.share_id:
-        return False
-
     await SharedChats.delete_by_chat_id(id, db=db)
-    await Chats.update_chat_share_id_by_id(id, None, db=db)
+
+    if chat.share_id:
+        await Chats.update_chat_share_id_by_id(id, None, db=db)
+
     await AccessGrants.set_access_grants('shared_chat', id, [], db=db)
 
     await publish_event(

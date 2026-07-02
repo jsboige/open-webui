@@ -179,6 +179,8 @@ class WorkspacePermissions(BaseModel):
     prompts_export: bool = False
     tools_import: bool = False
     tools_export: bool = False
+    skills_import: bool = False
+    skills_export: bool = False
 
 
 class SharingPermissions(BaseModel):
@@ -278,7 +280,8 @@ async def update_default_user_permissions(request: Request, form_data: UserPermi
         request,
         EVENTS.USER_PERMISSIONS_UPDATED,
         actor=user,
-        subject_id='user.permissions', subject_type='config',
+        subject_id='user.permissions',
+        subject_type='config',
     )
     return user_permissions
 
@@ -322,6 +325,14 @@ async def update_user_settings_by_session_user(
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
+    if user.role != 'admin' and not await has_permission(
+        user.id, 'settings.interface', await Config.get('user.permissions')
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+
     updated_user_settings = form_data.model_dump()
     ui_settings = updated_user_settings.get('ui')
     if (
@@ -632,7 +643,7 @@ async def update_user_by_id(
             except Exception as e:
                 raise HTTPException(400, detail=str(e))
 
-            hashed = get_password_hash(form_data.password)
+            hashed = await get_password_hash(form_data.password)
             await Auths.update_user_password_by_id(user_id, hashed, db=db)
 
         # Build update dict from only the provided fields
@@ -681,7 +692,8 @@ async def update_user_by_id(
                     request,
                     EVENTS.AUTH_PASSWORD_CHANGED,
                     actor=session_user,
-                    subject_id=user_id, subject_type='user',
+                    subject_id=user_id,
+                    subject_type='user',
                     source='admin',
                 )
             return updated_user

@@ -15,9 +15,7 @@ from typing import (
     Callable,
     Optional,
     Type,
-    Union,
     get_args,
-    get_origin,
     get_type_hints,
 )
 from urllib.parse import quote, urlencode
@@ -66,8 +64,10 @@ from open_webui.tools.builtin import (
     list_knowledge,
     list_knowledge_bases,
     list_memories,
+    list_memory_paths,
     query_knowledge_bases,
     query_knowledge_files,
+    read_memory_path,
     replace_memory_content,
     replace_note_content,
     search_calendar_events,
@@ -82,6 +82,7 @@ from open_webui.tools.builtin import (
     toggle_automation,
     update_automation,
     update_calendar_event,
+    update_memory,
     update_task,
     view_channel_message,
     view_channel_thread,
@@ -100,6 +101,15 @@ from pydantic import BaseModel, Field, create_model
 from pydantic.fields import FieldInfo
 
 log = logging.getLogger(__name__)
+
+
+def normalize_bearer_token(token: Any) -> str:
+    return token.strip() if isinstance(token, str) else token or ''
+
+
+def bearer_auth_header(token: Any) -> dict[str, str]:
+    token = normalize_bearer_token(token)
+    return {'Authorization': f'Bearer {token}'} if token else {}
 
 
 async def build_tool_server_headers(
@@ -170,6 +180,28 @@ async def get_async_tool_function_and_apply_extra_params(
     function: Callable, extra_params: dict
 ) -> Callable[..., Awaitable]:
     sig = inspect.signature(function)
+    try:
+        type_hints = get_type_hints(function)
+    except Exception:
+        type_hints = {}
+
+    def coerce_kwargs(kwargs):
+        for name, value in kwargs.items():
+            if name not in sig.parameters or value is None:
+                continue
+
+            annotation = type_hints.get(name, sig.parameters[name].annotation)
+            args = set(get_args(annotation))
+            if isinstance(value, str) and (annotation is int or args == {int, type(None)}):
+                kwargs[name] = int(value)
+            elif (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and (annotation is str or args == {str, type(None)})
+            ):
+                kwargs[name] = str(value)
+        return kwargs
+
     extra_params = {k: v for k, v in extra_params.items() if k in sig.parameters}
     partial_func = partial(function, **extra_params)
 
@@ -189,12 +221,12 @@ async def get_async_tool_function_and_apply_extra_params(
         # wrap the functools.partial as python-genai has trouble with it
         # https://github.com/googleapis/python-genai/issues/907
         async def new_function(*args, **kwargs):
-            return await partial_func(*args, **kwargs)
+            return await partial_func(*args, **coerce_kwargs(kwargs))
 
     else:
         # Make it a coroutine function when it is not already
         async def new_function(*args, **kwargs):
-            return partial_func(*args, **kwargs)
+            return partial_func(*args, **coerce_kwargs(kwargs))
 
     update_wrapper(new_function, function)
     new_function.__signature__ = new_sig
@@ -455,7 +487,7 @@ async def get_builtin_tools(
     # Helper to check user-level feature permission (admins always pass)
     user = extra_params.get('__user__', {})
     config = await Config.get_many(
-        'rag.web.search.enable',
+        'web.search.enable',
         'image_generation.enable',
         'images.edit.enable',
         'code_interpreter.enable',
@@ -527,26 +559,30 @@ async def get_builtin_tools(
     if is_builtin_tool_enabled('chats'):
         builtin_functions.extend([search_chats, view_chat])
 
-    # Add memory tools if builtin category enabled AND enabled for this chat
+    # Add memory tools when memory is enabled and the model allows this builtin category.
     if (
         is_builtin_tool_enabled('memory')
-        and (features.get('memory') or get_model_capability('memory', False))
+        and features.get('memory')
+        and get_model_capability('memory')
         and await has_user_permission('memories')
     ):
         builtin_functions.extend(
             [
                 search_memories,
+                list_memory_paths,
+                read_memory_path,
+                list_memories,
+                update_memory,
                 add_memory,
                 replace_memory_content,
                 delete_memory,
-                list_memories,
             ]
         )
 
     # Add web search tools if builtin category enabled AND enabled globally AND model has web_search capability
     if (
         is_builtin_tool_enabled('web_search')
-        and config.get('rag.web.search.enable')
+        and config.get('web.search.enable')
         and get_model_capability('web_search')
         and features.get('web_search')
         and await has_user_permission('web_search')
@@ -582,19 +618,11 @@ async def get_builtin_tools(
         builtin_functions.append(execute_code)
 
     # Notes tools - search, view, create, and update user's notes
-    if (
-        is_builtin_tool_enabled('notes')
-        and config.get('notes.enable')
-        and await has_user_permission('notes')
-    ):
+    if is_builtin_tool_enabled('notes') and config.get('notes.enable') and await has_user_permission('notes'):
         builtin_functions.extend([search_notes, view_note, write_note, replace_note_content])
 
     # Channels tools - search channels and messages
-    if (
-        is_builtin_tool_enabled('channels')
-        and config.get('channels.enable')
-        and await has_user_permission('channels')
-    ):
+    if is_builtin_tool_enabled('channels') and config.get('channels.enable') and await has_user_permission('channels'):
         builtin_functions.extend(
             [
                 search_channels,
@@ -623,11 +651,7 @@ async def get_builtin_tools(
         )
 
     # Calendar tools - search/create/update/delete events
-    if (
-        is_builtin_tool_enabled('calendar')
-        and config.get('calendar.enable')
-        and await has_user_permission('calendar')
-    ):
+    if is_builtin_tool_enabled('calendar') and config.get('calendar.enable') and await has_user_permission('calendar'):
         builtin_functions.extend(
             [search_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event]
         )
@@ -1090,7 +1114,7 @@ async def set_terminal_servers(request: Request):
         server_configs.append(
             {
                 'url': base_url,
-                'key': connection.get('key', ''),
+                'key': normalize_bearer_token(connection.get('key', '')),
                 'auth_type': connection.get('auth_type', 'bearer'),
                 'path': connection.get('path', '/openapi.json'),
                 'spec_type': 'url',
@@ -1114,7 +1138,7 @@ async def set_terminal_servers(request: Request):
             return
         headers = {}
         if connection.get('auth_type', 'bearer') == 'bearer':
-            headers['Authorization'] = f'Bearer {connection.get("key", "")}'
+            headers.update(bearer_auth_header(connection.get('key', '')))
         prompt = await get_terminal_system_prompt(server['url'], headers)
         if prompt:
             server['system_prompt'] = prompt
@@ -1189,15 +1213,15 @@ async def get_terminal_tools(
     headers = {'Content-Type': 'application/json', 'X-User-Id': user.id}
 
     if auth_type == 'bearer':
-        headers['Authorization'] = f'Bearer {connection.get("key", "")}'
+        headers.update(bearer_auth_header(connection.get('key', '')))
     elif auth_type == 'session':
         cookies = request.cookies
-        headers['Authorization'] = f'Bearer {request.state.token.credentials}'
+        headers.update(bearer_auth_header(request.state.token.credentials))
     elif auth_type == 'system_oauth':
         cookies = request.cookies
         oauth_token = extra_params.get('__oauth_token__', None)
         if oauth_token:
-            headers['Authorization'] = f'Bearer {oauth_token.get("access_token", "")}'
+            headers.update(bearer_auth_header(oauth_token.get('access_token', '')))
     # auth_type == "none": no Authorization header
 
     system_prompt = server_data.get('system_prompt')

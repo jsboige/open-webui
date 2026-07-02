@@ -28,6 +28,8 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+# pydub needs stdlib audioop (gone in 3.13); keep requires-python capped < 3.13
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
 from pydub.utils import mediainfo
@@ -92,6 +94,7 @@ TTS_CONFIG_KEYS = {
 STT_CONFIG_KEYS = {
     'OPENAI_API_BASE_URL': 'audio.stt.openai.api_base_url',
     'OPENAI_API_KEY': 'audio.stt.openai.api_key',
+    'OPENAI_API_REQUEST_FORMAT': 'audio.stt.openai.api_request_format',
     'ENGINE': 'audio.stt.engine',
     'MODEL': 'audio.stt.model',
     'SUPPORTED_CONTENT_TYPES': 'audio.stt.supported_content_types',
@@ -250,6 +253,7 @@ class TTSConfigForm(BaseModel):
 class STTConfigForm(BaseModel):
     OPENAI_API_BASE_URL: str
     OPENAI_API_KEY: str
+    OPENAI_API_REQUEST_FORMAT: str = 'multipart'
     ENGINE: str
     MODEL: str
     SUPPORTED_CONTENT_TYPES: list[str] = []
@@ -289,8 +293,8 @@ async def update_audio_config(request: Request, form_data: AudioConfigUpdateForm
     )
 
     if form_data.stt.ENGINE == '':
-        request.app.state.faster_whisper_model = set_faster_whisper_model(
-            form_data.stt.WHISPER_MODEL, WHISPER_MODEL_AUTO_UPDATE
+        request.app.state.faster_whisper_model = await asyncio.to_thread(
+            set_faster_whisper_model, form_data.stt.WHISPER_MODEL, WHISPER_MODEL_AUTO_UPDATE
         )
     else:
         request.app.state.faster_whisper_model = None
@@ -439,8 +443,8 @@ async def _tts_azure(request, payload, file_path, file_body_path, user):
     output_format = await Config.get('audio.tts.azure.speech_output_format')
 
     ssml = (
-        f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="{locale}">'
-        f'<voice name="{language}">{html.escape(payload["input"])}</voice>'
+        f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="{html.escape(locale)}">'
+        f'<voice name="{html.escape(language)}">{html.escape(payload["input"])}</voice>'
         f'</speak>'
     )
 
@@ -470,7 +474,7 @@ async def _tts_transformers(request, payload, file_path, file_body_path, user):
     import soundfile as sf
     import torch
 
-    load_speech_pipeline(request)
+    await asyncio.to_thread(load_speech_pipeline, request)
 
     embeddings = request.app.state.speech_speaker_embeddings_dataset
     model_name = await Config.get('audio.tts.model')
@@ -557,9 +561,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    if user.role != 'admin' and not await has_permission(
-        user.id, 'chat.tts', await Config.get('user.permissions')
-    ):
+    if user.role != 'admin' and not await has_permission(user.id, 'chat.tts', await Config.get('user.permissions')):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
@@ -612,7 +614,9 @@ async def speech(request: Request, user=Depends(get_verified_user)):
 
 async def _transcribe_whisper(request, file_path, languages, file_dir, id):
     if request.app.state.faster_whisper_model is None:
-        request.app.state.faster_whisper_model = set_faster_whisper_model(await Config.get('audio.stt.whisper_model'))
+        request.app.state.faster_whisper_model = await asyncio.to_thread(
+            set_faster_whisper_model, await Config.get('audio.stt.whisper_model')
+        )
 
     model = request.app.state.faster_whisper_model
 
@@ -642,28 +646,47 @@ async def _transcribe_openai(request, file_path, filename, languages, file_dir, 
     r = None
     try:
         session = await get_session()
+        api_key = await Config.get('audio.stt.openai.api_key')
+        api_base_url = await Config.get('audio.stt.openai.api_base_url')
+        request_format = (await Config.get('audio.stt.openai.api_request_format') or 'multipart').lower()
+
+        headers = {'Authorization': f'Bearer {api_key}'}
+        if user and ENABLE_FORWARD_USER_INFO_HEADERS:
+            headers = include_user_info_headers(headers, user)
+
         for language in languages:
             payload = {'model': await Config.get('audio.stt.model')}
             if language:
                 payload['language'] = language
-            api_key = await Config.get('audio.stt.openai.api_key')
-            api_base_url = await Config.get('audio.stt.openai.api_base_url')
 
-            headers = {'Authorization': f'Bearer {api_key}'}
-            if user and ENABLE_FORWARD_USER_INFO_HEADERS:
-                headers = include_user_info_headers(headers, user)
+            if request_format == 'json':
+                ext = os.path.splitext(filename)[1].lower().lstrip('.') or 'wav'
+                async with aiofiles.open(file_path, 'rb') as f:
+                    payload['input_audio'] = {
+                        'data': base64.b64encode(await f.read()).decode('utf-8'),
+                        'format': 'ogg' if ext == 'oga' else ext,
+                    }
 
-            form_data = aiohttp.FormData()
-            for key, value in payload.items():
-                form_data.add_field(key, str(value))
-            form_data.add_field('file', open(file_path, 'rb'), filename=filename)
+                r = await session.post(
+                    url=f'{api_base_url}/audio/transcriptions',
+                    headers={**headers, 'Content-Type': 'application/json'},
+                    json=payload,
+                    ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                )
+            else:
+                form_data = aiohttp.FormData()
+                for key, value in payload.items():
+                    form_data.add_field(key, str(value))
 
-            r = await session.post(
-                url=f'{api_base_url}/audio/transcriptions',
-                headers=headers,
-                data=form_data,
-                ssl=AIOHTTP_CLIENT_SESSION_SSL,
-            )
+                with open(file_path, 'rb') as audio_file:
+                    form_data.add_field('file', audio_file, filename=filename)
+
+                    r = await session.post(
+                        url=f'{api_base_url}/audio/transcriptions',
+                        headers=headers,
+                        data=form_data,
+                        ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                    )
             if r.status == 200:
                 break
 
@@ -1050,7 +1073,7 @@ async def transcribe(request: Request, file_path: str, metadata: Optional[dict] 
             log.exception(e)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=ERROR_MESSAGES.DEFAULT(e),
+                detail=ERROR_MESSAGES.DEFAULT(e, 'Error processing audio file'),
             )
 
     results = []
@@ -1147,9 +1170,7 @@ async def transcription(
     language: Optional[str] = Form(None),
     user=Depends(get_verified_user),
 ):
-    if user.role != 'admin' and not await has_permission(
-        user.id, 'chat.stt', await Config.get('user.permissions')
-    ):
+    if user.role != 'admin' and not await has_permission(user.id, 'chat.stt', await Config.get('user.permissions')):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
@@ -1187,8 +1208,12 @@ async def transcription(
         if not os.path.realpath(file_path).startswith(os.path.realpath(file_dir)):
             raise ValueError('Invalid file path detected')
 
-        with open(file_path, 'wb') as f:
-            f.write(contents)
+        def _write_upload():
+            with open(file_path, 'wb') as f:
+                f.write(contents)
+
+        # Audio uploads can be large; write to disk off the event loop.
+        await asyncio.to_thread(_write_upload)
 
         try:
             metadata = None

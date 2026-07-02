@@ -318,6 +318,7 @@
 				: config.EXTERNAL_DOCUMENT_LOADER_HEADERS;
 
 		config.MINERU_FILE_EXTENSIONS = (config?.MINERU_FILE_EXTENSIONS ?? ['pdf']).join(', ');
+		config.RAG_TOKENIZER_MODEL = config?.RAG_TOKENIZER_MODEL ?? '';
 
 		RAGConfig = config;
 	});
@@ -759,6 +760,21 @@
 									bind:value={RAGConfig.MISTRAL_OCR_API_KEY}
 								/>
 							</div>
+							<div class="flex justify-between w-full mt-2 pr-2">
+								<div class="self-center text-xs font-medium">
+									<Tooltip
+										content={$i18n.t(
+											'Send the PDF as a base64 data URL instead of uploading it first.'
+										)}
+										placement="top-start"
+									>
+										{$i18n.t('Use Base64')}
+									</Tooltip>
+								</div>
+								<div class="flex items-center">
+									<Switch bind:state={RAGConfig.MISTRAL_OCR_USE_BASE64} />
+								</div>
+							</div>
 						{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'paddleocr_vl'}
 							<div class="my-0.5 flex gap-2 pr-2">
 								<input
@@ -910,9 +926,29 @@
 								>
 									<option value="">{$i18n.t('Default')} ({$i18n.t('Character')})</option>
 									<option value="token">{$i18n.t('Token')} ({$i18n.t('Tiktoken')})</option>
+									<option value="token_transformers">
+										{$i18n.t('Token')} ({$i18n.t('Transformers')})
+									</option>
 								</select>
 							</div>
 						</div>
+
+						{#if RAGConfig.TEXT_SPLITTER === 'token_transformers'}
+							<div class="mb-2.5 flex flex-col w-full justify-between">
+								<div class="self-center text-xs font-medium min-w-fit mb-1 w-full">
+									{$i18n.t('Tokenizer Model')}
+								</div>
+								<div class="self-center w-full">
+									<input
+										class="w-full rounded-lg py-1.5 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
+										placeholder={$i18n.t('Enter Tokenizer Model')}
+										bind:value={RAGConfig.RAG_TOKENIZER_MODEL}
+										autocomplete="off"
+										required={RAG_EMBEDDING_ENGINE !== ''}
+									/>
+								</div>
+							</div>
+						{/if}
 
 						<div class="  mb-2.5 flex w-full justify-between">
 							<div class=" self-center text-xs font-medium">
@@ -1211,12 +1247,14 @@
 							</div>
 						{/if}
 					</div>
+				{/if}
 
-					<div class="mb-3">
-						<div class=" mt-0.5 mb-2.5 text-base font-medium">{$i18n.t('Retrieval')}</div>
+				<div class="mb-3">
+					<div class=" mt-0.5 mb-2.5 text-base font-medium">{$i18n.t('Retrieval')}</div>
 
-						<hr class=" border-gray-100/30 dark:border-gray-850/30 my-2" />
+					<hr class=" border-gray-100/30 dark:border-gray-850/30 my-2" />
 
+					{#if !RAGConfig.BYPASS_EMBEDDING_AND_RETRIEVAL}
 						<div class="  mb-2.5 flex w-full justify-between">
 							<div class=" self-center text-xs font-medium">{$i18n.t('Full Context Mode')}</div>
 							<div class="flex items-center relative">
@@ -1464,36 +1502,34 @@
 								</div>
 							{/if}
 						{/if}
+					{/if}
 
-						<div class="  mb-2.5 flex flex-col w-full justify-between">
-							<div class=" mb-1 text-xs font-medium">{$i18n.t('RAG Template')}</div>
-							<div class="flex w-full items-center relative">
-								<Tooltip
-									content={$i18n.t(
+					<div class="  mb-2.5 flex flex-col w-full justify-between">
+						<div class=" mb-1 text-xs font-medium">{$i18n.t('RAG Template')}</div>
+						<div class="flex w-full items-center relative">
+							<Tooltip
+								content={$i18n.t('Leave empty to use the default prompt, or enter a custom prompt')}
+								placement="top-start"
+								className="w-full"
+							>
+								<Textarea
+									bind:value={RAGConfig.RAG_TEMPLATE}
+									placeholder={$i18n.t(
 										'Leave empty to use the default prompt, or enter a custom prompt'
 									)}
-									placement="top-start"
-									className="w-full"
-								>
-									<Textarea
-										bind:value={RAGConfig.RAG_TEMPLATE}
-										placeholder={$i18n.t(
-											'Leave empty to use the default prompt, or enter a custom prompt'
-										)}
-									/>
-								</Tooltip>
-							</div>
-
-							{#if RAGConfig.RAG_TEMPLATE && (RAGConfig.RAG_TEMPLATE.match(/\[context\]/g) || []).length + (RAGConfig.RAG_TEMPLATE.match(/\{\{CONTEXT\}\}/g) || []).length > 1}
-								<div class="mt-1 text-xs text-gray-400 dark:text-gray-500">
-									{$i18n.t(
-										'This template contains multiple context placeholders ([context] or {{CONTEXT}}). Context will be injected at each occurrence.'
-									)}
-								</div>
-							{/if}
+								/>
+							</Tooltip>
 						</div>
+
+						{#if RAGConfig.RAG_TEMPLATE && (RAGConfig.RAG_TEMPLATE.match(/\[context\]/g) || []).length + (RAGConfig.RAG_TEMPLATE.match(/\{\{CONTEXT\}\}/g) || []).length > 1}
+							<div class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+								{$i18n.t(
+									'This template contains multiple context placeholders ([context] or {{CONTEXT}}). Context will be injected at each occurrence.'
+								)}
+							</div>
+						{/if}
 					</div>
-				{/if}
+				</div>
 
 				<div class="mb-3">
 					<div class=" mt-0.5 mb-2.5 text-base font-medium">{$i18n.t('Files')}</div>

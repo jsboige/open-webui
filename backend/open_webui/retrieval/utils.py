@@ -68,9 +68,9 @@ def is_youtube_url(url: str) -> bool:
 LOADER_CONFIG_KEYS = {
     'youtube_language': 'rag.youtube_loader_language',
     'youtube_proxy_url': 'rag.youtube_loader_proxy_url',
-    'web_loader_ssl_verification': 'rag.web.loader.ssl_verification',
-    'web_loader_concurrent_requests': 'rag.web.loader.concurrent_requests',
-    'web_search_trust_env': 'rag.web.search.trust_env',
+    'web_loader_ssl_verification': 'web.loader.ssl_verification',
+    'web_loader_concurrent_requests': 'web.loader.concurrent_requests',
+    'web_search_trust_env': 'web.search.trust_env',
     'CONTENT_EXTRACTION_ENGINE': 'rag.content_extraction_engine',
     'DATALAB_MARKER_API_KEY': 'rag.datalab_marker_api_key',
     'DATALAB_MARKER_API_BASE_URL': 'rag.datalab_marker_api_base_url',
@@ -97,6 +97,7 @@ LOADER_CONFIG_KEYS = {
     'DOCUMENT_INTELLIGENCE_MODEL': 'rag.document_intelligence_model',
     'MISTRAL_OCR_API_BASE_URL': 'rag.mistral_ocr_api_base_url',
     'MISTRAL_OCR_API_KEY': 'rag.mistral_ocr_api_key',
+    'MISTRAL_OCR_USE_BASE64': 'rag.mistral_ocr_use_base64',
     'PADDLEOCR_VL_BASE_URL': 'rag.paddleocr_vl_base_url',
     'PADDLEOCR_VL_TOKEN': 'rag.paddleocr_vl_token',
     'MINERU_API_MODE': 'rag.mineru_api_mode',
@@ -191,9 +192,16 @@ def _is_text_content_type(content_type: str) -> bool:
 
 
 async def get_content_from_url(request, url: str) -> str:
-    from open_webui.retrieval.web.utils import validate_url
-
     loader_config = await get_loader_config()
+
+    # The rest of this function performs synchronous, blocking work: an SSRF-guarded
+    # `requests` probe and a synchronous document loader (`loader.load()`). Run it in a
+    # worker thread so the event loop stays free while waiting on network/parsing.
+    return await asyncio.to_thread(_get_content_from_url_sync, request, url, loader_config)
+
+
+def _get_content_from_url_sync(request, url: str, loader_config):
+    from open_webui.retrieval.web.utils import validate_url, _SSRFSafeAdapter
 
     # Validate URL before making any request (blocks private IPs, non-HTTP, filter list)
     validate_url(url)
@@ -216,7 +224,11 @@ async def get_content_from_url(request, url: str) -> str:
     # re-validation would let an attacker reach private IPs (RFC1918, loopback,
     # cloud-metadata 169.254.169.254) via a public host that redirects internally.
     try:
-        response = requests.get(url, stream=True, timeout=30, allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS)
+        # Probe through the connect-time SSRF guard; bare requests.get re-resolves (DNS-rebinding gap).
+        session = requests.Session()
+        session.mount('http://', _SSRFSafeAdapter())
+        session.mount('https://', _SSRFSafeAdapter())
+        response = session.get(url, stream=True, timeout=30, allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS)
         response.raise_for_status()
         content_type = response.headers.get('Content-Type', '')
     except Exception:
@@ -277,21 +289,7 @@ class VectorSearchRetriever(BaseRetriever):
             limit=self.top_k,
         )
 
-        ids = result.ids[0]
-        metadatas = result.metadatas[0]
-        documents = result.documents[0]
-
-        results = []
-        for idx in range(len(ids)):
-            metadata = metadatas[idx]
-            metadata[CHUNK_HASH_KEY] = _content_hash(documents[idx])
-            results.append(
-                Document(
-                    metadata=metadata,
-                    page_content=documents[idx],
-                )
-            )
-        return results
+        return _search_result_to_documents(result)
 
 
 def query_doc(collection_name: str, query_embedding: list[float], k: int, user: UserModel = None):
@@ -360,7 +358,7 @@ def get_enriched_texts(collection_result: GetResult) -> list[str]:
     return enriched_texts
 
 
-def _search_result_to_documents(result: SearchResult) -> list[Document]:
+def _search_result_to_documents(result: SearchResult | None) -> list[Document]:
     ids = result.ids[0] if result and result.ids else []
     metadatas = result.metadatas[0] if result and result.metadatas else []
     documents = result.documents[0] if result and result.documents else []
@@ -1084,15 +1082,15 @@ def get_embedding_function(
     concurrent_requests=0,
 ) -> Awaitable:
     if embedding_engine == '':
-        if embedding_function is None:
-            raise ValueError(
-                'No embedding model is loaded. Set RAG_EMBEDDING_MODEL to a valid '
-                'SentenceTransformer model name, or configure an external '
-                'RAG_EMBEDDING_ENGINE (ollama, openai, azure_openai).'
-            )
-
         # Sentence transformers: CPU-bound sync operation
         async def async_embedding_function(query, prefix=None, user=None):
+            # Deferred so a missing local model degrades RAG instead of crashing boot.
+            if embedding_function is None:
+                raise ValueError(
+                    'No embedding model is loaded. Set RAG_EMBEDDING_MODEL to a valid '
+                    'SentenceTransformer model name, or configure an external '
+                    'RAG_EMBEDDING_ENGINE (ollama, openai, azure_openai).'
+                )
             return await asyncio.to_thread(
                 (
                     lambda query, prefix=None: embedding_function.encode(
@@ -1543,6 +1541,10 @@ async def get_sources_from_items(
                 'documents': [[doc.get('content') for doc in item.get('docs')]],
                 'metadatas': [[doc.get('metadata') for doc in item.get('docs')]],
             }
+        elif item.get('type') == 'web_search' and item.get('collection_name'):
+            # Trusted server-generated collection; authorized by
+            # filter_accessible_collections below (allowlists web-search-*).
+            collection_names.append(item['collection_name'])
         elif item.get('collection_name'):
             if BYPASS_RETRIEVAL_ACCESS_CONTROL:
                 collection_names.append(item['collection_name'])

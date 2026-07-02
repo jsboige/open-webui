@@ -131,7 +131,7 @@ async def export_skills(
 ):
     if user.role != 'admin' and not await has_permission(
         user.id,
-        'workspace.skills',
+        'workspace.skills_export',
         await Config.get('user.permissions'),
         db=db,
     ):
@@ -158,8 +158,9 @@ async def create_new_skill(
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    if user.role != 'admin' and not await has_permission(
-        user.id, 'workspace.skills', await Config.get('user.permissions'), db=db
+    if user.role != 'admin' and not (
+        await has_permission(user.id, 'workspace.skills', await Config.get('user.permissions'), db=db)
+        or await has_permission(user.id, 'workspace.skills_import', await Config.get('user.permissions'), db=db)
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -204,11 +205,13 @@ async def create_new_skill(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=ERROR_MESSAGES.DEFAULT('Error creating skill'),
             )
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(f'Failed to create skill: {e}')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(str(e)),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error creating skill'),
         )
 
 
@@ -329,10 +332,12 @@ async def update_skill_by_id(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=ERROR_MESSAGES.DEFAULT('Error updating skill'),
             )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(str(e)),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating skill'),
         )
 
 

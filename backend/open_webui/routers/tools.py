@@ -75,11 +75,14 @@ async def get_tools(
     tools_cache = get_tools_cache(request)
     for tool in await Tools.get_tools(defer_content=True, db=db):
         tool_module = tools_cache.get(tool.id)
+        has_user_valves = (
+            hasattr(tool_module, 'UserValves') if tool_module else (tool.meta.has_user_valves if tool.meta else False)
+        )
         tools.append(
             ToolUserResponse(
                 **{
                     **tool.model_dump(),
-                    'has_user_valves': (hasattr(tool_module, 'UserValves') if tool_module else False),
+                    'has_user_valves': has_user_valves,
                 }
             )
         )
@@ -118,12 +121,13 @@ async def get_tools(
 
     # MCP Tool Servers
     for server in await Config.get('tool_server.connections', []):
-        if server.get('type', 'openapi') == 'mcp' and server.get('config', {}).get('enable'):
-            server_id = server.get('info', {}).get('id')
+        if server.get('type', 'openapi') == 'mcp' and (server.get('config') or {}).get('enable'):
+            info = server.get('info') or {}
+            server_id = info.get('id')
             auth_type = server.get('auth_type', 'none')
 
             session_token = None
-            if auth_type in ('oauth_2.1', 'oauth_2.1_static'):
+            if auth_type in ('oauth_2.1', 'oauth_2.1_static') and server_id:
                 splits = server_id.split(':')
                 server_id = splits[-1] if len(splits) > 1 else server_id
 
@@ -131,9 +135,9 @@ async def get_tools(
                     user.id, f'mcp:{server_id}'
                 )
 
-            server_config = server.get('config', {})
+            server_config = server.get('config') or {}
 
-            tool_id = f'server:mcp:{server.get("info", {}).get("id")}'
+            tool_id = f'server:mcp:{info.get("id")}'
             server_access_grants[tool_id] = server_config.get('access_grants', [])
 
             tools.append(
@@ -141,9 +145,9 @@ async def get_tools(
                     **{
                         'id': tool_id,
                         'user_id': tool_id,
-                        'name': server.get('info', {}).get('name', 'MCP Tool Server'),
+                        'name': info.get('name', 'MCP Tool Server'),
                         'meta': {
-                            'description': server.get('info', {}).get('description', ''),
+                            'description': info.get('description', ''),
                         },
                         'updated_at': int(time.time()),
                         'created_at': int(time.time()),
@@ -289,8 +293,13 @@ async def load_tool_from_url(request: Request, form_data: LoadUrlForm, user=Depe
             'name': tool_name,
             'content': data,
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=ERROR_MESSAGES.DEFAULT(e))
+        raise HTTPException(
+            status_code=500,
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error fetching tool'),
+        )
 
 
 ############################
@@ -370,6 +379,7 @@ async def create_new_tools(
             form_data.content = replace_imports(form_data.content)
             tool_module, frontmatter = await load_tool_module_by_id(form_data.id, content=form_data.content)
             form_data.meta.manifest = frontmatter
+            form_data.meta.has_user_valves = hasattr(tool_module, 'UserValves')
 
             TOOLS = get_tools_cache(request)
             TOOLS[form_data.id] = tool_module
@@ -394,11 +404,13 @@ async def create_new_tools(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=ERROR_MESSAGES.DEFAULT('Error creating tools'),
                 )
+        except HTTPException:
+            raise
         except Exception as e:
             log.exception(f'Failed to load the tool by id {form_data.id}: {e}')
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=ERROR_MESSAGES.DEFAULT(str(e)),
+                detail=ERROR_MESSAGES.DEFAULT(e, 'Error creating tool'),
             )
     else:
         raise HTTPException(
@@ -507,6 +519,7 @@ async def update_tools_by_id(
         form_data.content = replace_imports(form_data.content)
         tool_module, frontmatter = await load_tool_module_by_id(id, content=form_data.content)
         form_data.meta.manifest = frontmatter
+        form_data.meta.has_user_valves = hasattr(tool_module, 'UserValves')
 
         TOOLS = get_tools_cache(request)
         TOOLS[id] = tool_module
@@ -544,10 +557,12 @@ async def update_tools_by_id(
                 detail=ERROR_MESSAGES.DEFAULT('Error updating tools'),
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(str(e)),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating tool'),
         )
 
 
@@ -700,7 +715,7 @@ async def get_tools_valves_by_id(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(str(e)),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error getting tool valves'),
         )
 
 
@@ -811,7 +826,7 @@ async def update_tools_valves_by_id(
         log.exception(f'Failed to update tool valves by id {id}: {e}')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(str(e)),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating tool valves'),
         )
 
 
@@ -853,7 +868,7 @@ async def get_tools_user_valves_by_id(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(str(e)),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error getting tool user valves'),
         )
 
 
@@ -951,7 +966,7 @@ async def update_tools_user_valves_by_id(
             log.exception(f'Failed to update user valves by id {id}: {e}')
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=ERROR_MESSAGES.DEFAULT(str(e)),
+                detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating tool user valves'),
             )
     else:
         raise HTTPException(

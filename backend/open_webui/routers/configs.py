@@ -27,6 +27,7 @@ from open_webui.utils.oauth import (
     resolve_oauth_client_info,
 )
 from open_webui.utils.tools import (
+    bearer_auth_header,
     get_tool_server_data,
     get_tool_server_url,
     set_terminal_servers,
@@ -143,7 +144,8 @@ async def set_connections_config(
         request,
         EVENTS.CONFIG_CONNECTIONS_UPDATED,
         actor=user,
-        subject_id='connections', subject_type='config',
+        subject_id='connections',
+        subject_type='config',
         data=values,
     )
     return values
@@ -155,6 +157,7 @@ class OAuthClientRegistrationForm(BaseModel):
     client_name: str | None = None
     client_secret: str | None = None
     oauth_server_url: str | None = None
+    oauth_scope: str | None = None
 
 
 @router.post('/oauth/clients/register')
@@ -179,10 +182,11 @@ async def register_oauth_client(
                 oauth_server_url,
                 oauth_client_id=form_data.client_id,
                 oauth_client_secret=form_data.client_secret,
+                oauth_scope=form_data.oauth_scope,
             )
         else:
             oauth_client_info = await get_oauth_client_info_with_dynamic_client_registration(
-                request, oauth_client_id, oauth_server_url
+                request, oauth_client_id, oauth_server_url, oauth_scope=form_data.oauth_scope
             )
         return {
             'status': True,
@@ -236,7 +240,7 @@ async def set_tool_servers_config(
 
         if auth_type in ('oauth_2.1', 'oauth_2.1_static'):
             # Remove existing OAuth clients for tool servers
-            server_id = connection.get('info', {}).get('id')
+            server_id = (connection.get('info') or {}).get('id')
             client_key = f'{server_type}:{server_id}'
 
             try:
@@ -253,15 +257,13 @@ async def set_tool_servers_config(
     for connection in connections:
         server_type = connection.get('type', 'openapi')
         if server_type == 'mcp':
-            server_id = connection.get('info', {}).get('id')
+            server_id = (connection.get('info') or {}).get('id')
             auth_type = connection.get('auth_type', 'none')
 
             if auth_type in ('oauth_2.1', 'oauth_2.1_static') and server_id:
                 try:
                     oauth_client_info = resolve_oauth_client_info(connection)
-                    oauth_client_info = await recover_static_oauth_client_metadata(
-                        connection, oauth_client_info
-                    )
+                    oauth_client_info = await recover_static_oauth_client_metadata(connection, oauth_client_info)
                     oauth_client_info = apply_connection_oauth_options(connection, oauth_client_info)
                     request.app.state.oauth_client_manager.add_client(
                         f'{server_type}:{server_id}',
@@ -275,7 +277,8 @@ async def set_tool_servers_config(
         request,
         EVENTS.CONFIG_TOOL_SERVERS_UPDATED,
         actor=user,
-        subject_id='tool_server.connections', subject_type='config',
+        subject_id='tool_server.connections',
+        subject_type='config',
         data={'count': len(connections), 'types': [connection.get('type', 'openapi') for connection in connections]},
     )
     return {'TOOL_SERVER_CONNECTIONS': connections}
@@ -327,7 +330,8 @@ async def set_terminal_servers_config(
         request,
         EVENTS.CONFIG_TERMINAL_SERVERS_UPDATED,
         actor=user,
-        subject_id='terminal_server.connections', subject_type='config',
+        subject_id='terminal_server.connections',
+        subject_type='config',
         data={'count': len(connections)},
     )
     return {'TERMINAL_SERVER_CONNECTIONS': connections}
@@ -349,7 +353,7 @@ async def verify_terminal_server_connection(
 
     headers = {}
     if form_data.auth_type == 'bearer' and form_data.key:
-        headers['Authorization'] = f'Bearer {form_data.key}'
+        headers.update(bearer_auth_header(form_data.key))
 
     try:
         async with aiohttp.ClientSession(
@@ -421,7 +425,7 @@ async def put_terminal_server_policy(
 
     headers = {'Content-Type': 'application/json'}
     if form_data.auth_type == 'bearer' and form_data.key:
-        headers['Authorization'] = f'Bearer {form_data.key}'
+        headers.update(bearer_auth_header(form_data.key))
 
     try:
         async with aiohttp.ClientSession(
@@ -456,7 +460,7 @@ async def put_terminal_server_lifecycle(
 
     headers = {'Content-Type': 'application/json'}
     if form_data.auth_type == 'bearer' and form_data.key:
-        headers['Authorization'] = f'Bearer {form_data.key}'
+        headers.update(bearer_auth_header(form_data.key))
 
     try:
         async with aiohttp.ClientSession(
@@ -494,7 +498,7 @@ async def refresh_terminal_server_terminals(
 
     headers = {'Content-Type': 'application/json'}
     if form_data.auth_type == 'bearer' and form_data.key:
-        headers['Authorization'] = f'Bearer {form_data.key}'
+        headers.update(bearer_auth_header(form_data.key))
 
     body = {
         'only_idle': form_data.only_idle,
@@ -696,7 +700,8 @@ async def set_code_execution_config(
         request,
         EVENTS.CONFIG_CODE_EXECUTION_UPDATED,
         actor=user,
-        subject_id='code_execution', subject_type='config',
+        subject_id='code_execution',
+        subject_type='config',
         data={
             'code_execution_enabled': values.get('ENABLE_CODE_EXECUTION'),
             'code_execution_engine': values.get('CODE_EXECUTION_ENGINE'),
@@ -738,7 +743,8 @@ async def set_models_config(request: Request, form_data: ModelsConfigForm, user=
         request,
         EVENTS.CONFIG_MODELS_UPDATED,
         actor=user,
-        subject_id='models', subject_type='config',
+        subject_id='models',
+        subject_type='config',
         data={
             'default_models': values.get('DEFAULT_MODELS'),
             'default_pinned_models': values.get('DEFAULT_PINNED_MODELS'),
@@ -770,7 +776,8 @@ async def set_default_suggestions(
         request,
         EVENTS.CONFIG_SUGGESTIONS_UPDATED,
         actor=user,
-        subject_id='ui.prompt_suggestions', subject_type='config',
+        subject_id='ui.prompt_suggestions',
+        subject_type='config',
         data={'count': len(suggestions or [])},
     )
     return suggestions
@@ -798,7 +805,8 @@ async def set_banners(
         request,
         EVENTS.CONFIG_BANNERS_UPDATED,
         actor=user,
-        subject_id='ui.banners', subject_type='config',
+        subject_id='ui.banners',
+        subject_type='config',
         data={'count': len(banners or [])},
     )
     return banners

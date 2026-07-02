@@ -1,9 +1,9 @@
+import asyncio
 import base64
 import fnmatch
 import hashlib
 import json
 import logging
-import mimetypes
 import re
 import sys
 import time
@@ -24,6 +24,8 @@ from fastapi import (
     HTTPException,
     status,
 )
+from joserfc.jws import JWSRegistry
+from joserfc.registry import HeaderParameter
 from mcp.shared.auth import (
     OAuthClientMetadata as MCPOAuthClientMetadata,
 )
@@ -84,6 +86,7 @@ from open_webui.retrieval.web.utils import validate_url
 from open_webui.utils.auth import create_token, get_password_hash
 from open_webui.utils.groups import apply_default_group_assignment
 from open_webui.utils.misc import parse_duration
+from open_webui.utils.validate import validate_profile_image_url
 from starlette.responses import RedirectResponse
 
 
@@ -177,16 +180,21 @@ def _default_value(value):
 async def get_oauth_runtime_config() -> SimpleNamespace:
     keys = [key for key, _default in OAUTH_RUNTIME_CONFIG.values()]
     stored = await Config.get_many(*keys)
-    values = {
-        name: stored.get(key, _default_value(default))
-        for name, (key, default) in OAUTH_RUNTIME_CONFIG.items()
-    }
+    values = {name: stored.get(key, _default_value(default)) for name, (key, default) in OAUTH_RUNTIME_CONFIG.items()}
     return SimpleNamespace(**values)
 
 
 # Conservative default when the provider omits both expires_in and expires_at.
 # Matches the value recommended by Authlib's compliance_fix documentation.
 DEFAULT_TOKEN_EXPIRY_SECONDS = 3600
+
+
+# Apereo CAS includes client_id in ID token JWS headers; Authlib 1.7/joserfc
+# rejects unknown headers unless we register the provider extension.
+JWSRegistry.default_header_registry.setdefault(
+    'client_id',
+    HeaderParameter('OAuth client identifier', 'str'),
+)
 
 
 def _normalize_token_expiry(token: dict) -> dict:
@@ -371,53 +379,57 @@ async def get_protected_resource_metadata(server_url: str) -> ProtectedResourceM
                 headers={'Content-Type': 'application/json'},
                 ssl=AIOHTTP_CLIENT_SESSION_SSL,
             ) as response:
-                if response.status == 401:
-                    resource_metadata_urls = []
-                    match = re.search(
-                        r'resource_metadata=(?:"([^"]+)"|([^\s,]+))',
-                        response.headers.get('WWW-Authenticate', ''),
-                    )
-                    if match:
-                        resource_metadata_urls = [match.group(1) or match.group(2)]
-                        log.debug(f'Found resource_metadata URL: {resource_metadata_urls[0]}')
-                    else:
-                        # Fall back to well-known resource metadata URIs (RFC 9728 §4.2)
-                        parsed, base_url = get_parsed_and_base_url(server_url)
-                        if parsed.path and parsed.path != '/':
-                            path = parsed.path.rstrip('/')
-                            resource_metadata_urls.append(
-                                urllib.parse.urljoin(base_url, f'/.well-known/oauth-protected-resource{path}')
-                            )
+                # Discover Protected Resource Metadata regardless of HTTP status.
+                # A 401 carries a WWW-Authenticate header pointing at the PRM, but
+                # some MCP servers (e.g. Google's gmail/drive/calendar remote MCPs)
+                # answer 200 to an anonymous `initialize`, so we must still fall
+                # back to the RFC 9728 well-known URIs when there is no 401/header.
+                resource_metadata_urls = []
+                match = re.search(
+                    r'resource_metadata=(?:"([^"]+)"|([^\s,]+))',
+                    response.headers.get('WWW-Authenticate', ''),
+                )
+                if match:
+                    resource_metadata_urls = [match.group(1) or match.group(2)]
+                    log.debug(f'Found resource_metadata URL: {resource_metadata_urls[0]}')
+                else:
+                    # Fall back to well-known resource metadata URIs (RFC 9728 §4.2)
+                    parsed, base_url = get_parsed_and_base_url(server_url)
+                    if parsed.path and parsed.path != '/':
+                        path = parsed.path.rstrip('/')
                         resource_metadata_urls.append(
-                            urllib.parse.urljoin(base_url, '/.well-known/oauth-protected-resource')
+                            urllib.parse.urljoin(base_url, f'/.well-known/oauth-protected-resource{path}')
                         )
-                        log.debug(f'No resource_metadata in header, trying well-known URIs: {resource_metadata_urls}')
+                    resource_metadata_urls.append(
+                        urllib.parse.urljoin(base_url, '/.well-known/oauth-protected-resource')
+                    )
+                    log.debug(f'No resource_metadata in header, trying well-known URIs: {resource_metadata_urls}')
 
-                    # Fetch Protected Resource metadata from candidate URLs
-                    for resource_metadata_url in resource_metadata_urls:
-                        try:
-                            async with session.get(
-                                resource_metadata_url, ssl=AIOHTTP_CLIENT_SESSION_SSL
-                            ) as resource_response:
-                                if resource_response.status == 200:
-                                    resource_metadata = await resource_response.json()
+                # Fetch Protected Resource metadata from candidate URLs
+                for resource_metadata_url in resource_metadata_urls:
+                    try:
+                        async with session.get(
+                            resource_metadata_url, ssl=AIOHTTP_CLIENT_SESSION_SSL
+                        ) as resource_response:
+                            if resource_response.status == 200:
+                                resource_metadata = await resource_response.json()
 
-                                    resource = resource_metadata.get('resource') or None
-                                    if resource:
-                                        log.debug(f'Discovered resource indicator: {resource}')
+                                resource = resource_metadata.get('resource') or None
+                                if resource:
+                                    log.debug(f'Discovered resource indicator: {resource}')
 
-                                    servers = resource_metadata.get('authorization_servers', [])
-                                    scopes = resource_metadata.get('scopes_supported', [])
-                                    if scopes:
-                                        log.debug(f'Discovered resource scopes: {scopes}')
+                                servers = resource_metadata.get('authorization_servers', [])
+                                scopes = resource_metadata.get('scopes_supported', [])
+                                if scopes:
+                                    log.debug(f'Discovered resource scopes: {scopes}')
 
-                                    if servers:
-                                        authorization_servers = servers
-                                        log.debug(f'Discovered authorization servers: {servers}')
-                                        break
-                        except Exception as e:
-                            log.debug(f'Failed to fetch resource metadata from {resource_metadata_url}: {e}')
-                            continue
+                                if servers:
+                                    authorization_servers = servers
+                                    log.debug(f'Discovered authorization servers: {servers}')
+                                    break
+                    except Exception as e:
+                        log.debug(f'Failed to fetch resource metadata from {resource_metadata_url}: {e}')
+                        continue
     except Exception as e:
         log.debug(f'MCP Protected Resource discovery failed: {e}')
 
@@ -464,6 +476,7 @@ async def get_oauth_client_info_with_dynamic_client_registration(
     client_id: str,
     oauth_server_url: str,
     oauth_server_key: Optional[str] = None,
+    oauth_scope: str | None = None,
 ) -> OAuthClientInformationFull:
     try:
         oauth_server_metadata = None
@@ -486,7 +499,10 @@ async def get_oauth_client_info_with_dynamic_client_registration(
         # Prefer the resource-specific scopes from the Protected Resource Metadata
         # (RFC 9728) over the AS's full scopes_supported catalog, for least
         # privilege. Mirrors the static-credentials flow (#24690).
-        if resource_metadata.scopes_supported:
+        scope_override = ' '.join(oauth_scope.replace(',', ' ').split()) if oauth_scope else None
+        if scope_override:
+            oauth_client_metadata.scope = scope_override
+        elif resource_metadata.scopes_supported:
             oauth_client_metadata.scope = ' '.join(resource_metadata.scopes_supported)
 
         discovery_urls = resource_metadata.get_discovery_urls(oauth_server_url)
@@ -586,6 +602,7 @@ async def get_oauth_client_info_with_static_credentials(
     oauth_server_url: str,
     oauth_client_id: str,
     oauth_client_secret: str,
+    oauth_scope: str | None = None,
 ) -> OAuthClientInformationFull:
     """
     Build an OAuthClientInformationFull from user-provided static credentials.
@@ -620,7 +637,9 @@ async def get_oauth_client_info_with_static_credentials(
         # Unlike the Authorization Server's scopes_supported (which is a full catalog
         # of every scope the server can grant), the PRM scopes_supported represents
         # what this specific resource requires — making it safe to request them all.
-        scope = ' '.join(resource_metadata.scopes_supported) if resource_metadata.scopes_supported else None
+        scope = (' '.join(oauth_scope.replace(',', ' ').split()) if oauth_scope else None) or (
+            ' '.join(resource_metadata.scopes_supported) if resource_metadata.scopes_supported else None
+        )
 
         # Determine token_endpoint_auth_method
         token_endpoint_auth_method = 'client_secret_post'
@@ -660,7 +679,7 @@ def resolve_oauth_client_info(connection: dict) -> dict:
     For oauth_2.1_static, overlays admin-provided credentials from
     info.oauth_client_id and info.oauth_client_secret onto the blob.
     """
-    info = connection.get('info', {})
+    info = connection.get('info') or {}
     data = decrypt_data(info.get('oauth_client_info', ''))
 
     if connection.get('auth_type') == 'oauth_2.1_static':
@@ -686,19 +705,24 @@ def get_connection_oauth_resource_parameter(connection: dict) -> OAuthResourcePa
 
 
 def apply_connection_oauth_options(connection: dict, oauth_client_info: dict) -> dict:
-    return {
+    info = connection.get('info') or {}
+    config = connection.get('config') or {}
+    oauth_scope = info.get('oauth_scope') or config.get('oauth_scope')
+    oauth_scope = ' '.join(oauth_scope.replace(',', ' ').split()) if oauth_scope else None
+
+    options = {
         **oauth_client_info,
         'oauth_resource_parameter': get_connection_oauth_resource_parameter(connection),
     }
+    if oauth_scope:
+        options['scope'] = oauth_scope
+    return options
 
 
 def scope_has_resource_indicator(scope: str | None) -> bool:
     if not scope:
         return False
-    return any(
-        scope_value.startswith(('https://', 'http://', 'api://'))
-        for scope_value in scope.split()
-    )
+    return any(scope_value.startswith(('https://', 'http://', 'api://')) for scope_value in scope.split())
 
 
 def should_send_oauth_resource(client_info: OAuthClientInformationFull | None) -> bool:
@@ -818,7 +842,7 @@ class OAuthClientManager:
             if connection.get('auth_type', 'none') not in ('oauth_2.1', 'oauth_2.1_static'):
                 continue
 
-            server_id = connection.get('info', {}).get('id')
+            server_id = (connection.get('info') or {}).get('id')
             if not server_id:
                 continue
 
@@ -826,15 +850,13 @@ class OAuthClientManager:
             if client_id != expected_client_id:
                 continue
 
-            oauth_client_info = connection.get('info', {}).get('oauth_client_info', '')
+            oauth_client_info = (connection.get('info') or {}).get('oauth_client_info', '')
             if not oauth_client_info:
                 continue
 
             try:
                 oauth_client_info = resolve_oauth_client_info(connection)
-                oauth_client_info = await recover_static_oauth_client_metadata(
-                    connection, oauth_client_info
-                )
+                oauth_client_info = await recover_static_oauth_client_metadata(connection, oauth_client_info)
                 oauth_client_info = apply_connection_oauth_options(connection, oauth_client_info)
                 return self.add_client(expected_client_id, OAuthClientInformationFull(**oauth_client_info))['client']
             except Exception as e:
@@ -908,7 +930,16 @@ class OAuthClientManager:
 
                     error_message = f'{error or ""} {error_description or ""}'.lower()
 
-                    if any(keyword in error_message for keyword in ('invalid_client', 'invalid client', 'client id')):
+                    if any(
+                        keyword in error_message
+                        for keyword in (
+                            'invalid_client',
+                            'invalid client',
+                            'client id',
+                            'redirect_uri',
+                            'redirect uri',
+                        )
+                    ):
                         log.warning(
                             f'OAuth client preflight detected invalid registration for {client_info.client_id}: {error} {error_description}'
                         )
@@ -1603,7 +1634,7 @@ class OAuthManager:
             return '/user.png'
 
         try:
-            validate_url(picture_url)
+            await asyncio.to_thread(validate_url, picture_url)
 
             get_kwargs = {}
             if access_token:
@@ -1619,12 +1650,17 @@ class OAuthManager:
                     allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS,
                 ) as resp:
                     if resp.ok:
+                        upstream_mime = (resp.headers.get('Content-Type', '') or '').split(';', 1)[0].strip().lower()
                         picture = await resp.read()
                         base64_encoded_picture = base64.b64encode(picture).decode('utf-8')
-                        guessed_mime_type = mimetypes.guess_type(picture_url)[0]
-                        if guessed_mime_type is None:
-                            guessed_mime_type = 'image/jpeg'
-                        return f'data:{guessed_mime_type};base64,{base64_encoded_picture}'
+                        try:
+                            return validate_profile_image_url(f'data:{upstream_mime};base64,{base64_encoded_picture}')
+                        except ValueError:
+                            log.warning(
+                                f'Rejected OAuth profile picture from {picture_url}: '
+                                f'MIME {upstream_mime!r} is not allowed'
+                            )
+                            return '/user.png'
                     else:
                         log.warning(f'Failed to fetch profile picture from {picture_url}')
                         return '/user.png'
@@ -1870,7 +1906,7 @@ class OAuthManager:
 
                     user = await Auths.insert_new_auth(
                         email=email,
-                        password=get_password_hash(str(uuid.uuid4())),  # Random password, not used
+                        password=await get_password_hash(str(uuid.uuid4())),  # Random password, not used
                         name=name,
                         profile_image_url=picture_url,
                         role=await self.get_user_role(None, user_data),

@@ -622,6 +622,7 @@ ${content}
 		});
 
 		if (res) {
+			pinnedNotes.set(await getPinnedNoteList(localStorage.token).catch(() => []));
 			toast.success($i18n.t('Note deleted successfully'));
 			goto('/notes');
 		} else {
@@ -1442,7 +1443,35 @@ Provide the enhanced notes in markdown format. Use markdown syntax for headings,
 				bind:show={showPanel}
 				bind:selectedModelId
 				bind:files
-				onUpdate={() => {
+				onUpdate={(updatedFiles) => {
+					files = updatedFiles;
+					note.data.files = files.length > 0 ? files : null;
+
+					if (editor) {
+						editor.storage.files = files;
+						const fileIds = new Set(files.map((file) => file.id));
+						const ranges = [];
+
+						editor.state.doc.descendants((node, pos) => {
+							const src = node.attrs.src;
+							if (
+								node.type.name === 'image' &&
+								src?.startsWith('data://') &&
+								!fileIds.has(src.slice('data://'.length))
+							) {
+								ranges.push([pos, pos + node.nodeSize]);
+							}
+						});
+
+						if (ranges.length > 0) {
+							let transaction = editor.state.tr;
+							ranges.reverse().forEach(([from, to]) => {
+								transaction = transaction.delete(from, to);
+							});
+							editor.view.dispatch(transaction);
+						}
+					}
+
 					changeDebounceHandler();
 				}}
 			/>

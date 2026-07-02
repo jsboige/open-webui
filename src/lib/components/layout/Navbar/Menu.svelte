@@ -7,6 +7,7 @@
 
 	import { downloadChatAsPDF } from '$lib/apis/utils';
 	import { copyToClipboard, createMessagesList } from '$lib/utils';
+	import { getOutputText } from '$lib/components/chat/Messages/structuredOutput';
 
 	import {
 		showControls,
@@ -59,7 +60,8 @@
 		const history = chat.chat.history;
 		const messages = createMessagesList(history, history.currentId);
 		const chatText = messages.reduce((a, message, i, arr) => {
-			return `${a}### ${message.role.toUpperCase()}\n${message.content}\n\n`;
+			const content = getOutputText(message.output) || message.content || '';
+			return `${a}### ${message.role.toUpperCase()}\n${content}\n\n`;
 		}, '');
 
 		return chatText.trim();
@@ -499,7 +501,7 @@
 
 				<hr class="border-gray-50/30 dark:border-gray-800/30 my-1" />
 
-				<div class="flex p-1">
+				<div class="flex p-1 max-h-28 overflow-y-auto">
 					<Tags chatId={chat.id} />
 				</div>
 			{/if}

@@ -808,10 +808,14 @@ async def get_channel_messages(
     user_ids = list(set(m.user_id for m in message_list))
     fetched_users = {u.id: u for u in await Users.get_users_by_user_ids(user_ids, db=db)}
 
+    # Batch fetch reactions and reply counts in 2 queries (fixes N+1)
+    message_ids = [m.id for m in message_list]
+    all_reactions = await Messages.get_reactions_by_message_ids(message_ids, db=db)
+    all_reply_counts = await Messages.get_thread_reply_counts_by_message_ids(message_ids, db=db)
+
     messages = []
     for message in message_list:
-        thread_replies = await Messages.get_thread_replies_by_message_id(message.id, db=db)
-        latest_thread_reply_at = thread_replies[0].created_at if thread_replies else None
+        reply_count, latest_reply_at = all_reply_counts.get(message.id, (0, None))
 
         # Use message.user if present (for webhooks), otherwise look up by user_id
         user_info = message.user
@@ -822,9 +826,9 @@ async def get_channel_messages(
             MessageUserResponse(
                 **{
                     **message.model_dump(),
-                    'reply_count': len(thread_replies),
-                    'latest_reply_at': latest_thread_reply_at,
-                    'reactions': await Messages.get_reactions_by_message_id(message.id, db=db),
+                    'reply_count': reply_count,
+                    'latest_reply_at': latest_reply_at,
+                    'reactions': all_reactions.get(message.id, []),
                     'user': user_info,
                 }
             )
@@ -873,6 +877,10 @@ async def get_pinned_channel_messages(
     user_ids = list(set(m.user_id for m in message_list))
     fetched_users = {u.id: u for u in await Users.get_users_by_user_ids(user_ids, db=db)}
 
+    # Batch fetch reactions in 1 query (fixes N+1)
+    message_ids = [m.id for m in message_list]
+    all_reactions = await Messages.get_reactions_by_message_ids(message_ids, db=db)
+
     messages = []
     for message in message_list:
         # Check for webhook identity in meta
@@ -892,7 +900,7 @@ async def get_pinned_channel_messages(
             MessageWithReactionsResponse(
                 **{
                     **message.model_dump(),
-                    'reactions': await Messages.get_reactions_by_message_id(message.id, db=db),
+                    'reactions': all_reactions.get(message.id, []),
                     'user': user_info,
                 }
             )
@@ -913,8 +921,11 @@ async def send_notification(request, channel, message, active_user_ids, db=None)
 
     users = await get_channel_users_with_access(channel, 'read', db=db)
 
+    # Batch fetch channel members in 1 query (fixes N+1)
+    member_ids = {m.user_id for m in await Channels.get_members_by_channel_id(channel.id, db=db)}
+
     for u in users:
-        if (u.id not in active_user_ids) and await Channels.is_user_channel_member(channel.id, u.id, db=db):
+        if (u.id not in active_user_ids) and u.id in member_ids:
             if enable_user_webhooks and u.settings:
                 webhook_url = u.settings.ui.get('notifications', {}).get('webhook_url', None)
                 if webhook_url:
@@ -1117,6 +1128,13 @@ async def new_message_handler(request: Request, id: str, form_data: MessageForm,
             db=db,
         ):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.DEFAULT())
+
+    # Thread parent / reply target must belong to this channel (no cross-channel binding).
+    for ref_id in (form_data.parent_id, form_data.reply_to_id):
+        if ref_id:
+            ref = await Messages.get_message_by_id(ref_id, include_thread_replies=False, db=db)
+            if not ref or ref.channel_id != channel.id:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.DEFAULT())
 
     try:
         message = await Messages.insert_new_message(form_data, channel.id, user.id, db=db)
@@ -1347,19 +1365,37 @@ async def pin_channel_message(
         await Messages.update_is_pinned_by_id(message_id, form_data.is_pinned, user.id, db=db)
         message = await Messages.get_message_by_id(message_id, db=db)
         message_user = await Users.get_user_by_id(message.user_id, db=db)
-        await publish_event(
-            request,
-            EVENTS.MESSAGE_PINNED if form_data.is_pinned else EVENTS.MESSAGE_UNPINNED,
-            actor=user,
-            subject_id=message_id, subject_type='message',
-            data={'channel_id': id},
-        )
-        return MessageUserResponse(
+        message_data = MessageUserResponse(
             **{
                 **message.model_dump(),
                 'user': UserNameResponse(**message_user.model_dump()) if message_user else None,
             }
         )
+
+        await sio.emit(
+            'events:channel',
+            {
+                'channel_id': channel.id,
+                'message_id': message.id,
+                'data': {
+                    'type': 'message:update',
+                    'data': message_data.model_dump(),
+                },
+                'user': UserNameResponse(**user.model_dump()).model_dump(),
+                'channel': channel.model_dump(),
+            },
+            to=f'channel:{channel.id}',
+        )
+
+        await publish_event(
+            request,
+            EVENTS.MESSAGE_PINNED if form_data.is_pinned else EVENTS.MESSAGE_UNPINNED,
+            actor=user,
+            subject_id=message_id,
+            subject_type='message',
+            data={'channel_id': id},
+        )
+        return message_data
     except Exception as e:
         log.exception(e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.DEFAULT())
@@ -1401,6 +1437,10 @@ async def get_channel_thread_messages(
     user_ids = list(set(m.user_id for m in message_list))
     fetched_users = {u.id: u for u in await Users.get_users_by_user_ids(user_ids, db=db)}
 
+    # Batch fetch reactions in 1 query (fixes N+1)
+    message_ids = [m.id for m in message_list]
+    all_reactions = await Messages.get_reactions_by_message_ids(message_ids, db=db)
+
     messages = []
     for message in message_list:
         # Use message.user if present (for webhooks), otherwise look up by user_id
@@ -1414,7 +1454,7 @@ async def get_channel_thread_messages(
                     **message.model_dump(),
                     'reply_count': 0,
                     'latest_reply_at': None,
-                    'reactions': await Messages.get_reactions_by_message_id(message.id, db=db),
+                    'reactions': all_reactions.get(message.id, []),
                     'user': user_info,
                 }
             )

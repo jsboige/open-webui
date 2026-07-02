@@ -20,6 +20,7 @@ from open_webui.models.groups import Groups
 from open_webui.models.users import Users
 from open_webui.utils.access_control import has_connection_access
 from open_webui.utils.auth import get_verified_user
+from open_webui.utils.tools import bearer_auth_header, normalize_bearer_token
 from starlette.background import BackgroundTask
 
 log = logging.getLogger(__name__)
@@ -126,15 +127,15 @@ async def proxy_terminal(
     auth_type = connection.get('auth_type', 'bearer')
 
     if auth_type == 'bearer':
-        headers['Authorization'] = f'Bearer {connection.get("key", "")}'
+        headers.update(bearer_auth_header(connection.get('key', '')))
     elif auth_type == 'session':
         cookies = request.cookies
-        headers['Authorization'] = f'Bearer {request.state.token.credentials}'
+        headers.update(bearer_auth_header(request.state.token.credentials))
     elif auth_type == 'system_oauth':
         cookies = request.cookies
         oauth_token = request.headers.get('x-oauth-access-token', '')
         if oauth_token:
-            headers['Authorization'] = f'Bearer {oauth_token}'
+            headers.update(bearer_auth_header(oauth_token))
     # auth_type == "none": no Authorization header
 
     content_type = request.headers.get('content-type')
@@ -211,7 +212,7 @@ async def _resolve_authenticated_connection(ws: WebSocket, server_id: str):
     import asyncio
     import json
 
-    from open_webui.utils.auth import decode_token
+    from open_webui.utils.auth import decode_token, is_valid_token
 
     # First-message authentication
     try:
@@ -222,7 +223,7 @@ async def _resolve_authenticated_connection(ws: WebSocket, server_id: str):
             return None
         token = payload.get('token', '')
         data = decode_token(token)
-        if data is None or 'id' not in data:
+        if data is None or 'id' not in data or not await is_valid_token(data, getattr(ws.app.state, 'redis', None)):
             await ws.close(code=4001, reason='Invalid token')
             return None
         user = await Users.get_user_by_id(data['id'])
@@ -309,7 +310,7 @@ async def ws_terminal(
             # First-message auth to upstream terminal server
             auth_type = connection.get('auth_type', 'bearer')
             if auth_type == 'bearer':
-                key = connection.get('key', '')
+                key = normalize_bearer_token(connection.get('key', ''))
                 await upstream.send_str(_json.dumps({'type': 'auth', 'token': key}))
 
             await publish_event(

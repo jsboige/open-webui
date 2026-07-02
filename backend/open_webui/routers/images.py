@@ -16,8 +16,10 @@ from urllib.parse import quote, urlparse
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from PIL import Image, ImageOps
 from open_webui.config import (
     CACHE_DIR,
+    ENABLE_OPENAI_IMAGE_EDIT_NORMALIZATION,
     IMAGE_AUTO_SIZE_MODELS_REGEX_PATTERN,
     IMAGE_URL_RESPONSE_MODELS_REGEX_PATTERN,
 )
@@ -52,6 +54,14 @@ IMAGE_CACHE_DIR = CACHE_DIR / 'image' / 'generations'
 IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter()
+
+IMAGE_FILE_EXTENSIONS = {
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/mpo': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+}
 
 IMAGE_CONFIG_KEYS = {
     'ENABLE_IMAGE_GENERATION': 'image_generation.enable',
@@ -104,6 +114,60 @@ def config_updates(data: dict, key_map: dict[str, str]) -> dict:
     return {key_map[field]: value for field, value in data.items() if field in key_map}
 
 
+def normalize_openai_edit_image_data_url(data_url: str) -> str:
+    if not data_url.startswith('data:') or ',' not in data_url:
+        return data_url
+
+    header, encoded = data_url.split(',', 1)
+    mime_type = header.split(';')[0].lstrip('data:').lower()
+    if mime_type not in {'image/jpeg', 'image/jpg', 'image/mpo'}:
+        return data_url
+
+    try:
+        image_bytes = base64.b64decode(encoded)
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            orientation = image.getexif().get(274)
+            needs_normalization = (
+                mime_type == 'image/mpo'
+                or image.format == 'MPO'
+                or getattr(image, 'n_frames', 1) > 1
+                or orientation not in (None, 1)
+                or image.mode not in ('RGB', 'L')
+            )
+
+            if not needs_normalization:
+                return data_url
+
+            image.seek(0)
+            image = ImageOps.exif_transpose(image)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+
+            output = io.BytesIO()
+            image.save(output, format='JPEG', quality=95)
+            normalized_image = base64.b64encode(output.getvalue()).decode('utf-8')
+            return f'data:image/jpeg;base64,{normalized_image}'
+    except Exception as e:
+        log.debug(f'Image edit normalization skipped: {e}')
+
+    return data_url
+
+
+def get_image_file_item(base64_string, param_name='image'):
+    header, encoded = base64_string.split(',', 1)
+    mime_type = header.split(';')[0].lstrip('data:') or 'image/png'
+    image_data = base64.b64decode(encoded)
+    extension = IMAGE_FILE_EXTENSIONS.get(mime_type.lower()) or mimetypes.guess_extension(mime_type) or '.png'
+    return (
+        param_name,
+        (
+            f'{uuid.uuid4()}{extension}',
+            io.BytesIO(image_data),
+            mime_type,
+        ),
+    )
+
+
 async def set_image_model(request: Request, model: str):
     log.info(f'Setting image model to {model}')
     await Config.upsert({'image_generation.model': model})
@@ -137,25 +201,12 @@ async def set_image_model(request: Request, model: str):
 async def get_image_model(request):
     image_config = await get_image_config()
     if image_config.IMAGE_GENERATION_ENGINE == 'openai':
-        return (
-            image_config.IMAGE_GENERATION_MODEL
-            if image_config.IMAGE_GENERATION_MODEL
-            else 'dall-e-2'
-        )
+        return image_config.IMAGE_GENERATION_MODEL if image_config.IMAGE_GENERATION_MODEL else 'dall-e-2'
     elif image_config.IMAGE_GENERATION_ENGINE == 'gemini':
-        return (
-            image_config.IMAGE_GENERATION_MODEL
-            if image_config.IMAGE_GENERATION_MODEL
-            else 'imagen-3.0-generate-002'
-        )
+        return image_config.IMAGE_GENERATION_MODEL if image_config.IMAGE_GENERATION_MODEL else 'imagen-3.0-generate-002'
     elif image_config.IMAGE_GENERATION_ENGINE == 'comfyui':
-        return (
-            image_config.IMAGE_GENERATION_MODEL if image_config.IMAGE_GENERATION_MODEL else ''
-        )
-    elif (
-        image_config.IMAGE_GENERATION_ENGINE == 'automatic1111'
-        or image_config.IMAGE_GENERATION_ENGINE == ''
-    ):
+        return image_config.IMAGE_GENERATION_MODEL if image_config.IMAGE_GENERATION_MODEL else ''
+    elif image_config.IMAGE_GENERATION_ENGINE == 'automatic1111' or image_config.IMAGE_GENERATION_ENGINE == '':
         try:
             session = await get_session()
             async with session.get(
@@ -166,7 +217,11 @@ async def get_image_model(request):
                 options = await r.json()
             return options['sd_model_checkpoint']
         except Exception as e:
-            raise HTTPException(status_code=400, detail=ERROR_MESSAGES.DEFAULT(e))
+            log.exception(f'Failed to get default model from automatic1111: {e}')
+            raise HTTPException(
+                status_code=400,
+                detail=ERROR_MESSAGES.DEFAULT(e, 'Failed to connect to the image generation engine'),
+            )
 
 
 class ImagesConfig(BaseModel):
@@ -365,10 +420,7 @@ async def get_models(request: Request, user=Depends(get_verified_user)):
                         info['CheckpointLoaderSimple']['input']['required']['ckpt_name'][0],
                     )
                 )
-        elif (
-            image_config.IMAGE_GENERATION_ENGINE == 'automatic1111'
-            or image_config.IMAGE_GENERATION_ENGINE == ''
-        ):
+        elif image_config.IMAGE_GENERATION_ENGINE == 'automatic1111' or image_config.IMAGE_GENERATION_ENGINE == '':
             session = await get_session()
             async with session.get(
                 url=f'{image_config.AUTOMATIC1111_BASE_URL}/sdapi/v1/sd-models',
@@ -383,7 +435,11 @@ async def get_models(request: Request, user=Depends(get_verified_user)):
                 )
             )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=ERROR_MESSAGES.DEFAULT(e))
+        log.exception(f'Failed to list image generation models: {e}')
+        raise HTTPException(
+            status_code=400,
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Failed to retrieve image generation models'),
+        )
 
 
 class CreateImageForm(BaseModel):
@@ -433,7 +489,7 @@ async def get_image_data(data: str, headers=None, trusted_base_url: str | None =
             if trusted_base_url and _is_same_origin(data, trusted_base_url):
                 log.debug(f'Skipping URL validation for trusted backend: {data}')
             else:
-                validate_url(data)
+                await asyncio.to_thread(validate_url, data)
             session = await get_session()
             async with session.get(
                 data,
@@ -520,7 +576,8 @@ async def generate_images(request: Request, form_data: CreateImageForm, user=Dep
         request,
         EVENTS.IMAGE_GENERATED,
         actor=user,
-        subject_id=None, subject_type='image',
+        subject_id=None,
+        subject_type='image',
         data={
             'model': form_data.model,
             'size': form_data.size,
@@ -586,11 +643,7 @@ async def image_generations(
                     )
                     else {'response_format': 'b64_json'}
                 ),
-                **(
-                    {}
-                    if not image_config.IMAGES_OPENAI_API_PARAMS
-                    else image_config.IMAGES_OPENAI_API_PARAMS
-                ),
+                **({} if not image_config.IMAGES_OPENAI_API_PARAMS else image_config.IMAGES_OPENAI_API_PARAMS),
             }
 
             session = await get_session()
@@ -731,10 +784,7 @@ async def image_generations(
                 )
                 images.append({'url': url})
             return images
-        elif (
-            image_config.IMAGE_GENERATION_ENGINE == 'automatic1111'
-            or image_config.IMAGE_GENERATION_ENGINE == ''
-        ):
+        elif image_config.IMAGE_GENERATION_ENGINE == 'automatic1111' or image_config.IMAGE_GENERATION_ENGINE == '':
             if form_data.model:
                 await set_image_model(request, form_data.model)
 
@@ -820,7 +870,8 @@ async def edit_images(request: Request, form_data: EditImageForm, user=Depends(g
         request,
         EVENTS.IMAGE_EDITED,
         actor=user,
-        subject_id=None, subject_type='image',
+        subject_id=None,
+        subject_type='image',
         data={
             'model': form_data.model,
             'size': form_data.size,
@@ -862,7 +913,7 @@ async def image_edits(
                 # called only on the originally-submitted URL; following 3xx redirects
                 # without re-validation would let an attacker reach private IPs via a
                 # public host that redirects internally (e.g. cloud-metadata exfil).
-                validate_url(data)
+                await asyncio.to_thread(validate_url, data)
                 # SSRF-safe session: re-checks the connect-time IP so a rebinding DNS answer
                 # that passed validate_url cannot reach an internal address.
                 async with get_ssrf_safe_session() as session:
@@ -899,21 +950,12 @@ async def image_edits(
         elif isinstance(form_data.image, list):
             # Load all images in parallel for better performance
             form_data.image = list(await asyncio.gather(*[load_url_image(img) for img in form_data.image]))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=ERROR_MESSAGES.DEFAULT(e))
-
-    def get_image_file_item(base64_string, param_name='image'):
-        data = base64_string
-        header, encoded = data.split(',', 1)
-        mime_type = header.split(';')[0].lstrip('data:')
-        image_data = base64.b64decode(encoded)
-        return (
-            param_name,
-            (
-                f'{uuid.uuid4()}.png',
-                io.BytesIO(image_data),
-                mime_type if mime_type else 'image/png',
-            ),
+        raise HTTPException(
+            status_code=400,
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error loading image'),
         )
 
     try:
@@ -943,9 +985,14 @@ async def image_edits(
 
             files = []
             if isinstance(form_data.image, str):
-                files = [get_image_file_item(form_data.image)]
+                image = form_data.image
+                if ENABLE_OPENAI_IMAGE_EDIT_NORMALIZATION:
+                    image = normalize_openai_edit_image_data_url(image)
+                files = [get_image_file_item(image)]
             elif isinstance(form_data.image, list):
                 for img in form_data.image:
+                    if ENABLE_OPENAI_IMAGE_EDIT_NORMALIZATION:
+                        img = normalize_openai_edit_image_data_url(img)
                     files.append(get_image_file_item(img, 'image[]'))
 
             url_search_params = ''

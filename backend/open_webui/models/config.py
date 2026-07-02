@@ -14,6 +14,7 @@ import logging
 import time
 from typing import Any, ClassVar
 
+from fastapi.encoders import jsonable_encoder
 from open_webui.internal.db import Base, get_async_db
 from sqlalchemy import JSON, BigInteger, Column, Text, delete, select
 
@@ -25,7 +26,7 @@ DICT_CONFIG_KEY_ALIASES = {
     'ollama.api_configs': ('OLLAMA_API_CONFIGS',),
     'rag.mineru_params': ('MINERU_PARAMS',),
     'rag.docling_params': ('DOCLING_PARAMS',),
-    'rag.web.search.linkup_search_params': ('LINKUP_SEARCH_PARAMS',),
+    'web.search.linkup_search_params': ('LINKUP_SEARCH_PARAMS',),
     'image_generation.automatic1111.api_params': ('AUTOMATIC1111_PARAMS',),
     'image_generation.openai.params': ('IMAGES_OPENAI_API_PARAMS',),
     'audio.tts.openai.params': ('AUDIO_TTS_OPENAI_PARAMS',),
@@ -86,6 +87,10 @@ def _assign_path(target: dict, path: list[str], value: Any) -> None:
     current[path[-1]] = value
 
 
+def _json_value(value: Any) -> Any:
+    return jsonable_encoder(value)
+
+
 # ── Model ────────────────────────────────────────────────────────────────────
 
 
@@ -112,7 +117,7 @@ class Config(Base):
         enable_persistent: bool = True,
         enable_oauth_persistent: bool = False,
     ) -> None:
-        cls.DEFAULTS = defaults or {}
+        cls.DEFAULTS = dict(defaults or {})
         cls.PERSISTENT_ENABLED = enable_persistent
         cls.OAUTH_PERSISTENT_ENABLED = enable_oauth_persistent
 
@@ -188,9 +193,20 @@ class Config(Base):
     @staticmethod
     async def upsert(updates: dict) -> None:
         """Upsert multiple config key-value pairs. Raises on failure."""
+        persistent_updates = {}
+        for key, value in updates.items():
+            value = _json_value(value)
+            if Config.persistent_enabled_for(key):
+                persistent_updates[key] = value
+            else:
+                Config.DEFAULTS[key] = value
+
+        if not persistent_updates:
+            return
+
         async with get_async_db() as db:
             now = int(time.time())
-            for key, value in updates.items():
+            for key, value in persistent_updates.items():
                 existing = await db.get(Config, key)
                 if existing:
                     existing.value = value
@@ -232,6 +248,7 @@ class Config(Base):
             new_count = 0
             for key, value in defaults.items():
                 if key not in existing_keys:
+                    value = _json_value(value)
                     db.add(Config(key=key, value=value, updated_at=now))
                     existing_keys.add(key)
                     new_count += 1
@@ -239,6 +256,40 @@ class Config(Base):
             if new_count:
                 await db.commit()
                 log.info('Seeded %d new config defaults', new_count)
+
+    @staticmethod
+    async def rename_prefix(old_prefix: str, new_prefix: str) -> None:
+        """Move persisted config keys from one dotted prefix to another."""
+        if not Config.PERSISTENT_ENABLED:
+            return
+
+        async with get_async_db() as db:
+            result = await db.execute(select(Config).where(Config.key.like(f'{old_prefix}.%')))
+            rows = result.scalars().all()
+            if not rows:
+                return
+
+            now = int(time.time())
+            moved_count = 0
+            deleted_count = 0
+            for row in rows:
+                new_key = f'{new_prefix}.{row.key.removeprefix(f"{old_prefix}.")}'
+                existing = await db.get(Config, new_key)
+                if existing is None:
+                    db.add(Config(key=new_key, value=row.value, updated_at=now))
+                    moved_count += 1
+                else:
+                    deleted_count += 1
+                await db.delete(row)
+
+            await db.commit()
+            log.info(
+                'Renamed %d config keys from %s.* to %s.*; deleted %d old duplicates',
+                moved_count,
+                old_prefix,
+                new_prefix,
+                deleted_count,
+            )
 
     @staticmethod
     async def repair_flattened_dict_configs() -> None:

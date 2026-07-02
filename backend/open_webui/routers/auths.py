@@ -105,6 +105,7 @@ ADMIN_CONFIG_KEYS = {
     'ENABLE_CHANNELS': 'channels.enable',
     'ENABLE_CALENDAR': 'calendar.enable',
     'ENABLE_MEMORIES': 'memories.enable',
+    'ENABLE_MEMORY_SYSTEM_CONTEXT': 'memories.system_context.enable',
     'ENABLE_NOTES': 'notes.enable',
     'ENABLE_USER_WEBHOOKS': 'ui.enable_user_webhooks',
     'ENABLE_USER_STATUS': 'users.enable_status',
@@ -186,7 +187,8 @@ async def create_session_response(
         request,
         EVENTS.AUTH_LOGIN,
         actor=user,
-        subject_id=user.id, subject_type='user',
+        subject_id=user.id,
+        subject_type='user',
         source=source,
         data={'auth_method': source},
     )
@@ -379,14 +381,15 @@ async def update_password(
                 validate_password(form_data.new_password)
             except Exception as e:
                 raise HTTPException(400, detail=str(e))
-            hashed = get_password_hash(form_data.new_password)
+            hashed = await get_password_hash(form_data.new_password)
             success = await Auths.update_user_password_by_id(user.id, hashed, db=db)
             if success:
                 await publish_event(
                     request,
                     EVENTS.AUTH_PASSWORD_CHANGED,
                     actor=user,
-                    subject_id=user.id, subject_type='user',
+                    subject_id=user.id,
+                    subject_type='user',
                 )
             return success
         else:
@@ -740,15 +743,6 @@ async def signin(
                 detail=ERROR_MESSAGES.RATE_LIMIT_EXCEEDED,
             )
 
-        password_bytes = form_data.password.encode('utf-8')
-        if len(password_bytes) > 72:
-            # TODO: Implement other hashing algorithms that support longer passwords
-            log.info('Password too long, truncating to 72 bytes for bcrypt')
-            password_bytes = password_bytes[:72]
-
-            # decode safely — ignore incomplete UTF-8 sequences
-            form_data.password = password_bytes.decode('utf-8', errors='ignore')
-
         user = await Auths.authenticate_user(
             form_data.email.lower(),
             lambda pw: verify_password(form_data.password, pw),
@@ -786,7 +780,7 @@ async def signup_handler(
     # Insert with default role first to avoid TOCTOU race on first signup.
     # If has_users() is checked before insert, concurrent requests during
     # first-user registration can all see an empty table and each get admin.
-    hashed = get_password_hash(password)
+    hashed = await get_password_hash(password)
 
     user = await Auths.insert_new_auth(
         email=email.lower(),
@@ -1040,7 +1034,7 @@ async def add_user(
         except Exception as e:
             raise HTTPException(400, detail=str(e))
 
-        hashed = get_password_hash(form_data.password)
+        hashed = await get_password_hash(form_data.password)
         user = await Auths.insert_new_auth(
             form_data.email.lower(),
             hashed,
@@ -1149,6 +1143,7 @@ class AdminConfig(BaseModel):
     ENABLE_CHANNELS: bool
     ENABLE_CALENDAR: bool
     ENABLE_MEMORIES: bool
+    ENABLE_MEMORY_SYSTEM_CONTEXT: bool
     ENABLE_NOTES: bool
     ENABLE_USER_WEBHOOKS: bool
     ENABLE_USER_STATUS: bool
@@ -1381,9 +1376,7 @@ async def update_oauth_config(request: Request, form_data: OAuthConfigForm, user
 async def _check_api_key_permission(request: Request, user, db: AsyncSession):
     if not await Config.get('auth.enable_api_keys') or (
         user.role != 'admin'
-        and not await has_permission(
-            user.id, 'features.api_keys', await Config.get('user.permissions'), db=db
-        )
+        and not await has_permission(user.id, 'features.api_keys', await Config.get('user.permissions'), db=db)
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1406,7 +1399,8 @@ async def generate_api_key(
             request,
             EVENTS.AUTH_API_KEY_CREATED,
             actor=user,
-            subject_id=user.id, subject_type='user',
+            subject_id=user.id,
+            subject_type='user',
         )
         return {
             'api_key': api_key,
@@ -1427,16 +1421,15 @@ async def delete_api_key(
             request,
             EVENTS.AUTH_API_KEY_DELETED,
             actor=user,
-            subject_id=user.id, subject_type='user',
+            subject_id=user.id,
+            subject_type='user',
         )
     return success
 
 
 # get api key
 @router.get('/api_key', response_model=ApiKey)
-async def get_api_key(
-    request: Request, user=Depends(get_current_user), db: AsyncSession = Depends(get_async_session)
-):
+async def get_api_key(request: Request, user=Depends(get_current_user), db: AsyncSession = Depends(get_async_session)):
     await _check_api_key_permission(request, user, db)
     api_key = await Users.get_user_api_key_by_id(user.id, db=db)
     if api_key:

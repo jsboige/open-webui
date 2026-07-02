@@ -132,8 +132,13 @@ async def load_function_from_url(request: Request, form_data: LoadUrlForm, user=
             'name': function_name,
             'content': data,
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=ERROR_MESSAGES.DEFAULT(e))
+        raise HTTPException(
+            status_code=500,
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error fetching function'),
+        )
 
 
 ############################
@@ -173,7 +178,7 @@ async def sync_functions(
         log.exception(f'Failed to load a function: {e}')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error loading function'),
         )
 
 
@@ -232,11 +237,13 @@ async def create_new_function(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=ERROR_MESSAGES.DEFAULT('Error creating function'),
                 )
+        except HTTPException:
+            raise
         except Exception as e:
             log.exception(f'Failed to create a new function: {e}')
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=ERROR_MESSAGES.DEFAULT(e),
+                detail=ERROR_MESSAGES.DEFAULT(e, 'Error creating function'),
             )
     else:
         raise HTTPException(
@@ -284,7 +291,8 @@ async def toggle_function_by_id(
                 request,
                 EVENTS.FUNCTION_ENABLED if function.is_active else EVENTS.FUNCTION_DISABLED,
                 actor=user,
-                subject_id=function.id, subject_type='function',
+                subject_id=function.id,
+                subject_type='function',
                 data={'type': function.type, 'name': function.name},
             )
             return function
@@ -381,10 +389,12 @@ async def update_function_by_id(
                 detail=ERROR_MESSAGES.DEFAULT('Error updating function'),
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e),
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating function'),
         )
 
 
@@ -432,7 +442,7 @@ async def get_function_valves_by_id(
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=ERROR_MESSAGES.DEFAULT(e),
+                detail=ERROR_MESSAGES.DEFAULT(e, 'Error getting function valves'),
             )
     else:
         raise HTTPException(
@@ -508,7 +518,7 @@ async def update_function_valves_by_id(
                 log.exception(f'Error updating function values by id {id}: {e}')
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=ERROR_MESSAGES.DEFAULT(e),
+                    detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating function valves'),
                 )
         else:
             raise HTTPException(
@@ -540,7 +550,7 @@ async def get_function_user_valves_by_id(
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=ERROR_MESSAGES.DEFAULT(e),
+                detail=ERROR_MESSAGES.DEFAULT(e, 'Error getting function user valves'),
             )
     else:
         raise HTTPException(
@@ -607,7 +617,7 @@ async def update_function_user_valves_by_id(
                 log.exception(f'Error updating function user valves by id {id}: {e}')
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=ERROR_MESSAGES.DEFAULT(e),
+                    detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating function user valves'),
                 )
         else:
             raise HTTPException(
