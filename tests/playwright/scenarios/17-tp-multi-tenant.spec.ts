@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getTenantConfig, type TenantConfig } from '../fixtures/tenant';
-import { apiLogin, getModels, getModelDetail } from '../helpers/api';
+import { apiLogin, getModels, getModelDetail, chatCompletion } from '../helpers/api';
 
 /**
  * Scenario 17 — TP Tutor Models: Multi-Tenant Deployment Validation
@@ -135,5 +135,37 @@ test.describe('17 — TP Tutor Models: Multi-Tenant Deployment', () => {
     }
 
     expect(errors, `function_calling issues: ${errors.join('; ')}`).toHaveLength(0);
+  });
+
+  test('conversational tutor tp-prompt-engineering responds non-empty on all tenants', async ({ request }) => {
+    // v0.10.2 made native tool-calling the DEFAULT. The static function_calling
+    // check above only flags an EXPLICIT native setting; a conversational persona
+    // whose function_calling param is ABSENT passes that check yet could regress
+    // to empty output under the new default. Only a functional smoke catches that
+    // — and until now the persona smoke ran on myia alone (scenario 18.3), which
+    // tests myia-specific personas, not this fleet-wide tutor. tp-prompt-engineering
+    // is the one tool-free tutor deployed on every tenant, so it is the canary for
+    // this regression across the fleet.
+    test.setTimeout(180_000);
+    const failures: string[] = [];
+
+    for (const [name, { config, token }] of Object.entries(tenantTokens)) {
+      // chatCompletion returns null on HTTP error / empty content but THROWS on a
+      // request-level timeout, so guard with .catch; retry once for transient blips.
+      let content: string | null = null;
+      for (let attempt = 0; attempt < 2 && !content; attempt++) {
+        if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 3_000));
+        content = await chatCompletion(
+          request, config.url, token, 'tp-prompt-engineering',
+          "En une phrase, qu'est-ce que le prompt engineering ?",
+          { timeout: 60_000 },
+        ).catch(() => null);
+      }
+      if (!content || content.trim().length <= 2) {
+        failures.push(`${name} (${content === null ? 'no response' : 'empty'})`);
+      }
+    }
+
+    expect(failures, `tp-prompt-engineering returned empty on: ${failures.join(', ')}`).toHaveLength(0);
   });
 });
