@@ -90,9 +90,8 @@ test.describe('18 — Full Stack Services Verification', () => {
       { name: 'MistralAI devstral-small', model: 'MistralAI.devstral-small-latest' },
       { name: 'MistralAI mistral-medium', model: 'MistralAI.mistral-medium-latest' },
       { name: 'OpenAI gpt-4.1-mini', model: 'OpenAI.gpt-4.1-mini' },
-      { name: 'DeepSeek', model: 'DeepSeek.deepseek-chat' },
+      { name: 'DeepSeek', model: 'DeepSeek.deepseek-v4-flash' },
       { name: 'vLLM medium (Qwen 3.6)', model: 'Local.qwen3.6-35b-a3b' },
-      { name: 'vLLM mini (OmniCoder)', model: 'Local.omnicoder-9b' },
     ];
 
     for (const { name, model } of LLM_TESTS) {
@@ -254,8 +253,10 @@ test.describe('18 — Full Stack Services Verification', () => {
       const myia = tenantTokens['myia'];
       test.skip(!myia, 'myia not available');
 
+      // Unique suffix busts OWUI's speech cache (keyed on raw request body):
+      // a cached hit would mask a dead TTS backend (false-green, 2026-07-02).
       const audioSize = await generateTTS(
-        request, myia.config.url, myia.token, 'Bonjour, ceci est un test.',
+        request, myia.config.url, myia.token, `Bonjour, ceci est un test. ${Date.now()}`,
       );
       expect(audioSize, 'TTS should return audio data').toBeGreaterThan(1000);
     });

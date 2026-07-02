@@ -9,7 +9,7 @@ import {
 
 // 128x128 red square on white background. 16x16 was rejected by local vLLM
 // vision models ("broken data stream"); 128x128 is the smallest size that
-// every tested backend (vLLM Qwen3.6, OmniCoder, Claude Haiku, GLM-4.7)
+// every tested backend (vLLM Qwen3.6, Claude Haiku, GLM-4.7)
 // accepts. PNG is only ~380 bytes so the base64 stays inline-friendly.
 const RED_SQUARE_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPacAAABQ0lEQVR4nO3ZsQnAMAwAwThk/5WVGVyYg+SvFxY8qrxm5opzw7dTAK8LwAqAFQArAFYArABYAbACYAXACoAVACsAVgDs2Z5Y68giX7LzxdIFYAXACoAVACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFYArABYAbACYAXACoAVACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFYArABYAbACYAXACoAVACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFYArABYAbACYAXACoAVACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFYArABYAbBne2LmyCJ/1QVgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFaAy3oBuDUH/wA0a9sAAAAASUVORK5CYII=';
@@ -32,7 +32,6 @@ const RED_SQUARE_B64 =
 // (e.g. glm-4.7v) or the direct Z.ai connector — so it is not tested here.
 const VISION_MODELS = [
   { id: 'Local.qwen3.6-35b-a3b', name: 'Qwen3.6-35B' },
-  { id: 'Local.omnicoder-9b', name: 'OmniCoder-9B' },
   { id: 'vision-expert', name: 'vision-expert wrapper' },
   { id: 'OpenRouter.anthropic/claude-haiku-4.5', name: 'Claude Haiku 4.5' },
 ];
