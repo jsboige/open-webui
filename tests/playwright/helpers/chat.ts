@@ -7,7 +7,7 @@ import { CHAT, MODEL, NAV } from './selectors';
  */
 export async function startNewChat(page: Page): Promise<void> {
   await page.goto('/');
-  await expect(page.locator(MODEL.selectorButton)).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(MODEL.selectorButton).first()).toBeVisible({ timeout: 15_000 });
 }
 
 /**
@@ -15,11 +15,11 @@ export async function startNewChat(page: Page): Promise<void> {
  * The search input placeholder is localized — use role-based locator.
  */
 export async function selectModel(page: Page, modelName: string): Promise<void> {
-  await page.locator(MODEL.selectorButton).click();
+  await page.locator(MODEL.selectorButton).first().click();
   // Wait for the model listbox to appear
   await expect(page.locator(MODEL.modelListbox)).toBeVisible({ timeout: 10_000 });
-  // Type in the search input (role=textbox inside the dropdown menu)
-  const searchInput = page.locator('[role="menu"] input[type="text"], [role="menu"] input[placeholder]').first();
+  // Type in the search input (v0.10: stable #model-search-input, with fallbacks)
+  const searchInput = page.locator(MODEL.searchInput).first();
   await searchInput.fill(modelName);
   // Click the first matching model option
   await page.locator(MODEL.modelOption).first().click({ timeout: 10_000 });

@@ -4,7 +4,7 @@ import { MODEL } from '../helpers/selectors';
 test.describe('07 — Channels', () => {
   test('navigate to channels section', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator(MODEL.selectorButton)).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(MODEL.selectorButton).first()).toBeVisible({ timeout: 15_000 });
 
     // Try to find Channels link in navigation
     const channelsLink = page.getByRole('link', { name: /channels|canaux/i }).first();

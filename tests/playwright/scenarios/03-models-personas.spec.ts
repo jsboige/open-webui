@@ -11,7 +11,7 @@ test.describe('03 — Custom Models & Personas', () => {
     await selectModel(page, 'expert-analyste');
 
     // The model should be selected — verify the selector shows the name
-    const selectorText = await page.locator(MODEL.selectorButton).innerText();
+    const selectorText = await page.locator(MODEL.selectorButton).first().innerText();
     expect(selectorText.toLowerCase()).toContain('analyste');
   });
 
@@ -38,7 +38,9 @@ test.describe('03 — Custom Models & Personas', () => {
   });
 
   test('fast model (Qwen3.6-35B-A3B Fast) has no <think> tags', async ({ page }) => {
-    await selectModel(page, 'Fast');
+    // "Fast" alone is ambiguous since OpenRouter added x-ai/grok-4-fast —
+    // "(Fast)" only matches the local wrapper "Qwen3.6-35B-A3B (Fast)".
+    await selectModel(page, '(Fast)');
     const response = await chat(page, 'Quelle est la capitale de la France?');
 
     // vLLM may be down — skip gracefully
