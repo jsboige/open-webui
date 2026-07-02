@@ -58,9 +58,10 @@ export const CHAT = {
   availableTools: 'button[aria-label="Available Tools"]',
   // Message action bar (ResponseMessage: `{#if message.done}`) — its Copy
   // button only renders once generation fully completed, INCLUDING follow-up
-  // rounds after tool calls. The v0.10.2 release build has NO aria-label on
-  // this button (added later upstream) — the stable `copy-response-button`
-  // class is present in both the release bundle and dev.
+  // rounds after tool calls. The stable `copy-response-button` class is
+  // present in both the release bundle and dev. ⚠ In the v0.10.2 release DOM
+  // the action bar is NOT inside `.chat-assistant` — don't chain this under
+  // the message locator; match at page level (one button per done response).
   messageDoneCopy: 'button.copy-response-button',
 } as const;
 
