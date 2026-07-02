@@ -45,9 +45,23 @@ test.describe('17 — TP Tutor Models: Multi-Tenant Deployment', () => {
       const missing: string[] = [];
 
       for (const [name, { config, token }] of Object.entries(tenantTokens)) {
-        const models = await getModels(request, config.url, token);
-        const found = models.some(m => m.id.includes(modelId));
-        if (!found) missing.push(name);
+        // The subject here is deployment consistency, not API availability:
+        // under full-suite load /api/models can transiently time out or serve
+        // a partial list mid connector-cache refresh, so retry once before
+        // declaring the tutor missing on a tenant.
+        let found = false;
+        let lastError = '';
+        for (let attempt = 0; attempt < 2 && !found; attempt++) {
+          if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 3_000));
+          try {
+            const models = await getModels(request, config.url, token);
+            found = models.some(m => m.id.includes(modelId));
+            lastError = '';
+          } catch (error) {
+            lastError = error instanceof Error ? error.message : String(error);
+          }
+        }
+        if (!found) missing.push(lastError ? `${name} (fetch failed: ${lastError})` : name);
       }
 
       expect(missing, `${modelId} missing on: ${missing.join(', ')}`).toHaveLength(0);
