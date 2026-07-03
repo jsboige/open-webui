@@ -110,9 +110,14 @@ def smoke_tenant(base, tok, container):
             out['chat_content'] = 'parse-error'
     else:
         out['chat_error'] = str(b)[:100]
-    # 6. TTS Kokoro
+    # 6. TTS Kokoro. Cache-bust the input: OWUI caches synthesized speech keyed by
+    #    the raw request body, so a FIXED input can return a stale cached 200 and
+    #    false-green a re-smoke run after a key/config change (e.g. the Kokoro
+    #    token resync that closes the fleet-wide 401). A per-run nonce forces every
+    #    request to a unique body → always hits the real backend, never the cache.
+    tts_nonce = os.urandom(4).hex()
     s,b = api_raw(f'{base}/api/v1/audio/speech', tok, method='POST',
-                  data={'input':'Test.','model':'kokoro','voice':'ff_siwis'}, timeout=20)
+                  data={'input':f'Smoke test {tts_nonce}.','model':'kokoro','voice':'ff_siwis'}, timeout=20)
     out['tts_status'] = s
     if s == 200:
         out['tts_bytes'] = len(b)
