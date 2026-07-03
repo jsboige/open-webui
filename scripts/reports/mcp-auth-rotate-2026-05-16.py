@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Rotate MCP_AUTH bearer token in OWUI tool_servers config across 7 tenants.
 
-Context: token b5a27f95b leak on PUBLIC repo jsboige/hermes-agent (2026-05-16).
-Old token (sk-agent proxy bearer, leaked):
-  d0dcf54aed997e794b3ba0f8ce599aff66796decd28284ab4c5b03a69790f33f
-New token: read from env var MCP_AUTH_NEW (never persisted/logged).
+Context: an sk-agent proxy bearer token leaked on a PUBLIC repo (2026-05-16) and
+was rotated fleet-wide by this one-shot. Old token: read from env var
+MCP_AUTH_OLD (never hardcoded here — public repo; the leaked value is dead +
+already public). New token: read from env var MCP_AUTH_NEW (never persisted/logged).
 
 For each tenant:
   GET  /api/v1/configs/tool_servers              -> snapshot
@@ -13,9 +13,10 @@ For each tenant:
 
 Usage:
   MCP_AUTH_NEW='...' python scripts/reports/mcp-auth-rotate-2026-05-16.py [--dry-run] [--no-verify]
-Output is JSON on stdout with masked tokens (first 8 + last 4 only).
+Output is JSON on stdout with secret-safe token fingerprints (length + a short
+non-reversible sha256 prefix, never any characters of the token).
 """
-import os, sys, json, argparse, urllib.request, urllib.error
+import os, sys, json, argparse, hashlib, urllib.request, urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,7 +29,7 @@ TENANTS = [
     ('epita',     'EPITA'),
     ('pauwels',   'PAUWELS'),
 ]
-OLD_TOKEN = 'd0dcf54aed997e794b3ba0f8ce599aff66796decd28284ab4c5b03a69790f33f'
+OLD_TOKEN = os.environ.get('MCP_AUTH_OLD', '').strip()  # never hardcoded (public repo); the dead+already-public pre-rotation token to match
 
 def load_env(p):
     if not Path(p).exists(): return
@@ -39,9 +40,12 @@ def load_env(p):
         os.environ.setdefault(k.strip(), v.strip().strip("'\""))
 
 def mask(s):
-    if not s or not isinstance(s, str): return s
-    if len(s) < 16: return '***'
-    return f'{s[:8]}...{s[-4:]}(len={len(s)})'
+    """Secret-safe fingerprint: token LENGTH + a short non-reversible sha256
+    prefix ONLY — never any character of the token (machine rule: report length
+    only). Supersedes the old first8...last4 mask, which disclosed 12 chars of a
+    live secret into this JSON audit output (public repo)."""
+    if not s or not isinstance(s, str): return None
+    return f'len={len(s)} sha256:{hashlib.sha256(s.encode()).hexdigest()[:8]}'
 
 def api(url, tok=None, method='GET', data=None, timeout=30):
     h={'Content-Type':'application/json'}
@@ -117,6 +121,8 @@ def main():
         sys.stderr.write('ERROR: MCP_AUTH_NEW env var not set\n'); sys.exit(2)
     if len(tok_env) < 32:
         sys.stderr.write(f'ERROR: MCP_AUTH_NEW looks too short (len={len(tok_env)})\n'); sys.exit(2)
+    if not OLD_TOKEN:
+        sys.stderr.write('ERROR: MCP_AUTH_OLD env var not set (the dead pre-rotation token to match)\n'); sys.exit(2)
     if tok_env == OLD_TOKEN:
         sys.stderr.write('ERROR: MCP_AUTH_NEW == OLD_TOKEN, refusing\n'); sys.exit(2)
     load_env(Path(__file__).parent.parent.parent / '.env')

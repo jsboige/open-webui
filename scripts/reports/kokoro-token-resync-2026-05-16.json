@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-05-16T19:21:48.899983+00:00",
   "dry_run": false,
-  "new_token_masked": "HcE_kr3n...icuJ(len=64)",
+  "new_token_masked": "REDACTED(len=64)",
   "tenants": [
     {
       "tenant": "myia",
@@ -10,8 +10,8 @@
         "step": "noop",
         "ok": true,
         "note": "already in sync",
-        "old_masked": "HcE_kr3n...icuJ(len=64)",
-        "new_masked": "HcE_kr3n...icuJ(len=64)"
+        "old_masked": "REDACTED(len=64)",
+        "new_masked": "REDACTED(len=64)"
       }
     },
     {
@@ -21,8 +21,8 @@
         "step": "noop",
         "ok": true,
         "note": "already in sync",
-        "old_masked": "HcE_kr3n...icuJ(len=64)",
-        "new_masked": "HcE_kr3n...icuJ(len=64)"
+        "old_masked": "REDACTED(len=64)",
+        "new_masked": "REDACTED(len=64)"
       }
     },
     {
@@ -32,8 +32,8 @@
         "step": "noop",
         "ok": true,
         "note": "already in sync",
-        "old_masked": "HcE_kr3n...icuJ(len=64)",
-        "new_masked": "HcE_kr3n...icuJ(len=64)"
+        "old_masked": "REDACTED(len=64)",
+        "new_masked": "REDACTED(len=64)"
       }
     },
     {
@@ -43,8 +43,8 @@
         "step": "noop",
         "ok": true,
         "note": "already in sync",
-        "old_masked": "HcE_kr3n...icuJ(len=64)",
-        "new_masked": "HcE_kr3n...icuJ(len=64)"
+        "old_masked": "REDACTED(len=64)",
+        "new_masked": "REDACTED(len=64)"
       }
     },
     {
@@ -54,8 +54,8 @@
         "step": "noop",
         "ok": true,
         "note": "already in sync",
-        "old_masked": "HcE_kr3n...icuJ(len=64)",
-        "new_masked": "HcE_kr3n...icuJ(len=64)"
+        "old_masked": "REDACTED(len=64)",
+        "new_masked": "REDACTED(len=64)"
       }
     },
     {
@@ -65,8 +65,8 @@
         "step": "noop",
         "ok": true,
         "note": "already in sync",
-        "old_masked": "HcE_kr3n...icuJ(len=64)",
-        "new_masked": "HcE_kr3n...icuJ(len=64)"
+        "old_masked": "REDACTED(len=64)",
+        "new_masked": "REDACTED(len=64)"
       }
     },
     {
@@ -76,8 +76,8 @@
         "step": "noop",
         "ok": true,
         "note": "already in sync",
-        "old_masked": "HcE_kr3n...icuJ(len=64)",
-        "new_masked": "HcE_kr3n...icuJ(len=64)"
+        "old_masked": "REDACTED(len=64)",
+        "new_masked": "REDACTED(len=64)"
       }
     }
   ]

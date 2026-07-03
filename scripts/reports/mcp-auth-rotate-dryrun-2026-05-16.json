@@ -9,8 +9,8 @@
 {
   "generated_at": "2026-05-16T14:09:54.677157+00:00",
   "dry_run": true,
-  "old_token_masked": "d0dcf54a...f33f(len=64)",
-  "new_token_masked": "ad28ecc7...906b(len=64)",
+  "old_token_masked": "REDACTED(len=64)",
+  "new_token_masked": "REDACTED(len=64)",
   "tenants": [
     {
       "tenant": "myia",

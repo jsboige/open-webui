@@ -5,7 +5,8 @@ Context: post-v0.9.5 smoke (2026-05-16) showed HTTP 401 from Kokoro backend.
 IISManagement diagnosed that the container's API_KEY had drifted from the OWUI bearer.
 
 Reads new token from KOKORO_TOKEN env var (never persisted/logged). Output JSON
-masks the token (first 8 + last 4 only) for audit.
+reports token LENGTH + a short non-reversible sha256 prefix ONLY (never any
+characters of the token) for audit. Public repo: no secret material in output.
 
 Smoke verification is done by the dedicated `post-v0.9.5-smoke-2026-05-16.py`
 after running this script — keeping responsibilities separate.
@@ -13,7 +14,7 @@ after running this script — keeping responsibilities separate.
 Usage:
   KOKORO_TOKEN='...' python scripts/reports/kokoro-token-resync-2026-05-16.py [--dry-run]
 """
-import os, sys, json, argparse, urllib.request, urllib.error
+import os, sys, json, argparse, hashlib, urllib.request, urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,9 +37,12 @@ def load_env(p):
         os.environ.setdefault(k.strip(), v.strip().strip("'\""))
 
 def mask(s):
-    if not s or not isinstance(s, str): return s
-    if len(s) < 16: return '***'
-    return f'{s[:8]}...{s[-4:]}(len={len(s)})'
+    """Secret-safe fingerprint: token LENGTH + a short non-reversible sha256
+    prefix ONLY — never any character of the token (machine rule: report length
+    only). Supersedes the old first8...last4 mask, which disclosed 12 chars of a
+    live secret into this JSON audit output (public repo)."""
+    if not s or not isinstance(s, str): return None
+    return f'len={len(s)} sha256:{hashlib.sha256(s.encode()).hexdigest()[:8]}'
 
 def api(url, tok=None, method='GET', data=None, timeout=30):
     h={'Content-Type':'application/json'}
