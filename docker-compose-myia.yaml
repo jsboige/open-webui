@@ -1,5 +1,10 @@
 services:
   open-webui:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     build:
       context: .
       args:
@@ -31,6 +36,11 @@ services:
       - open-webui-shared
     restart: unless-stopped
   pipelines:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: ghcr.io/open-webui/pipelines:main
     volumes:
       - pipelines-data:/app/pipelines
@@ -40,6 +50,11 @@ services:
       - open-webui-shared
     restart: unless-stopped
   whisper-stt-adapter:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     build:
       context: ./whisper-webui-adapter
       dockerfile: Dockerfile
@@ -53,6 +68,11 @@ services:
       - open-webui-shared
     restart: unless-stopped
   open-terminal:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: ghcr.io/open-webui/open-terminal:latest
     container_name: open-terminal-myia
     ports:
@@ -70,6 +90,11 @@ services:
       - open-webui-shared
     restart: unless-stopped
   channel-bot:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     build:
       context: ./scripts/bots
       dockerfile: Dockerfile

@@ -1,5 +1,10 @@
 services:
   open-webui:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-cuda}
     volumes:
       - \\wsl.localhost\Ubuntu\home\jesse\pauwels\open-webui:/app/backend/data
@@ -24,6 +29,11 @@ services:
       - open-webui-shared
     restart: unless-stopped
   open-terminal:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: open-terminal-finance:latest
     container_name: open-terminal-pauwels
     volumes:
@@ -40,6 +50,11 @@ services:
     restart: unless-stopped
 
   channel-bot:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     build:
       context: ./scripts/bots
       dockerfile: Dockerfile
