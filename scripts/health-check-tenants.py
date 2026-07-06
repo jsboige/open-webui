@@ -21,6 +21,7 @@ Uses urllib (no third-party dependencies).
 import argparse
 import json
 import ssl
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -160,11 +161,66 @@ def check_tenant(name, base, email, password, probe_models, skip_completions):
     }
 
 
+def check_pins(tenant_prefixes, expected_tag):
+    """Verify each tenant's RUNNING OWUI container is on the pinned image tag.
+
+    Catches silent drift where a container was recreated (e.g. a compose
+    `up -d --force-recreate` during maintenance) and, if a floating tag like
+    `cuda` slipped into the env, pulled a NEWER image than the fleet pin — so
+    the fleet splits across builds with no API-visible signal. Read-only
+    (docker inspect); degrades to UNKNOWN if docker is unreachable.
+    """
+    expected_ref = f"ghcr.io/open-webui/open-webui:{expected_tag}"
+    print(f"\n=== IMAGE PIN CHECK (expect {expected_ref}) ===")
+    refs = {}
+    for prefix in tenant_prefixes:
+        container = f"{prefix.lower().replace('_', '-')}-open-webui-open-webui-1"
+        try:
+            actual = subprocess.run(
+                ["docker", "inspect", "--format", "{{.Config.Image}}", container],
+                capture_output=True, timeout=10,
+            ).stdout.decode().strip()
+        except Exception as e:
+            actual = ""
+            refs[prefix] = f"UNKNOWN ({str(e)[:40]})"
+            print(f"  {prefix:12} UNKNOWN  (docker inspect failed: {str(e)[:50]})")
+            continue
+        if not actual:
+            refs[prefix] = "UNKNOWN (container not found)"
+            print(f"  {prefix:12} UNKNOWN  (container {container} not found)")
+        else:
+            verdict = "MATCH" if actual == expected_ref else "DRIFT"
+            refs[prefix] = actual
+            mark = "OK" if verdict == "MATCH" else "!!"
+            print(f"  {prefix:12} {verdict:6} {mark}  {actual}")
+
+    unique = {r for r in refs.values() if not r.startswith("UNKNOWN")}
+    if len(unique) == 1:
+        print(f"  -> UNIFORM: all tenants on {next(iter(unique))}")
+    elif len(unique) > 1:
+        print(f"  -> DRIFT: {len(unique)} distinct images across the fleet:")
+        for r in sorted(unique):
+            on = [p for p, v in refs.items() if v == r]
+            print(f"       {r}  <- {', '.join(on)}")
+    unknown = [p for p, v in refs.items() if v.startswith("UNKNOWN")]
+    if unknown:
+        print(f"  -> UNKNOWN for: {', '.join(unknown)} (docker not reachable?)")
+    return refs
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tenants", nargs="+", default=DEFAULT_TENANTS, help="Tenant names (env prefix)")
     parser.add_argument("--probe-models", nargs="+", default=DEFAULT_PROBE_MODELS, help="Models to test via chat completion")
     parser.add_argument("--skip-completions", action="store_true", help="Skip chat completion tests (faster)")
+    parser.add_argument(
+        "--check-pin",
+        metavar="EXPECTED_TAG",
+        default=None,
+        help="Also verify each tenant's RUNNING container image is pinned to this tag "
+        "(e.g. v0.10.2-cuda) via docker inspect. Catches silent drift after a recreate. "
+        "Needs docker access to the host running the fleet.",
+    )
     parser.add_argument("--env-file", default=".env", help="Path to .env file")
     args = parser.parse_args()
 
@@ -182,6 +238,9 @@ def main():
             print(f"\n{t}: missing credentials in {args.env_file} (need {t}_URL/_EMAIL/_PASSWORD)")
             continue
         summary[t] = check_tenant(t, base, email, password, args.probe_models, args.skip_completions)
+
+    if args.check_pin:
+        check_pins(args.tenants, args.check_pin)
 
     print("\n\n=== SUMMARY ===")
     for t, r in summary.items():
