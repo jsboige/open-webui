@@ -15,6 +15,14 @@ via `QDRANT_API_KEY=${QDRANT_API_KEY}` and interpolated from the per-tenant
 value. So the fix is: rewrite that one line in the 8 env files, recreate the 7
 containers, verify auth returns 200.
 
+GOTCHA (found 2026-07-11): docker compose gives an inherited shell / Windows-
+registry `QDRANT_API_KEY` PRECEDENCE over `--env-file` when interpolating
+`${QDRANT_API_KEY}`. On ai-01 a stale User-scoped `QDRANT_API_KEY` was silently
+shadowing the env files, so rewriting them had NO effect and a plain `up -d` left
+the container on the old key. This script therefore (a) passes the new key
+explicitly in the recreate subprocess env, (b) `--force-recreate`s the open-webui
+service, and (c) on Windows makes the durable var right via `setx` (User scope).
+
 SECRETS: the new key is read ONLY from the env var QDRANT_API_KEY_NEW (never a
 positional arg — those leak into shell history — and never via RooSync: a Qdrant
 key's SOURCE is the infra/master.env side, so distributing it over RooSync is a
@@ -138,10 +146,49 @@ def rewrite_key(env_path: Path, new_val: str, apply: bool) -> dict:
             "old": mask(old_val), "new": mask(new_val)}
 
 
-def recreate(compose_file: str, env_file: str, project: str) -> dict:
+def sync_shell_var(new_val: str, apply: bool) -> dict:
+    """docker compose gives an inherited shell / Windows-registry QDRANT_API_KEY
+    PRECEDENCE over --env-file for `${VAR}` interpolation. If such a var is set and
+    stale, rewriting the env files has NO effect. Detect it, and on Windows make it
+    durable via `setx` (User scope) so future `docker compose up` runs interpolate
+    the correct key. Never prints the value (masked fingerprints only)."""
+    inherited = os.environ.get(KEY)
+    shadowing = bool(inherited) and inherited != new_val
+    rec = {"inherited": mask(inherited), "shadowing": shadowing, "ok": True}
+    if not shadowing:
+        rec["action"] = "none (no stale shadow)"
+        return rec
+    if not apply:
+        rec["action"] = "plan: would update durable QDRANT_API_KEY (setx User / export)"
+        return rec
+    # Fix this process so the recreate step interpolates correctly regardless.
+    os.environ[KEY] = new_val
+    if os.name == "nt":
+        # setx persists to the User registry; the value is a subprocess arg
+        # (host-local, like a manual setx), never echoed to stdout.
+        cp = _run(["setx", KEY, new_val], timeout=30)
+        rec["ok"] = cp.returncode == 0
+        rec["rc"] = cp.returncode
+        rec["action"] = "setx User QDRANT_API_KEY (durable)"
+    else:
+        # The recreate env override fixes THIS run; durability needs a manual export.
+        rec["durable"] = False
+        rec["action"] = f"WARN: export {KEY} in the shell/service env for durability"
+    return rec
+
+
+def recreate(compose_file: str, env_file: str, project: str, new_val: str) -> dict:
+    # Pass QDRANT_API_KEY explicitly in the subprocess env: compose gives an
+    # inherited shell/registry var precedence over --env-file, so a stale value
+    # would otherwise shadow the rewritten env file. --force-recreate on just the
+    # open-webui service guarantees the container is rebuilt with the new key
+    # (plain `up -d` sees "no config change" and leaves it on the old one) without
+    # churning the tenant's other services (bots, terminal, whisper adapter).
+    env = {**os.environ, KEY: new_val}
     cmd = ["docker", "compose", "-p", project, "-f", str(REPO / compose_file),
-           "--env-file", str(REPO / env_file), "up", "-d"]
-    cp = _run(cmd, timeout=300)
+           "--env-file", str(REPO / env_file), "up", "-d", "--force-recreate",
+           "open-webui"]
+    cp = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
     return {"ok": cp.returncode == 0, "rc": cp.returncode,
             "err": (cp.stderr or cp.stdout or "").strip()[-300:] if cp.returncode else ""}
 
@@ -181,6 +228,7 @@ def main() -> int:
         "mode": "recreate+verify" if args.recreate else ("apply" if apply else "plan"),
         "new_key_masked": mask(new_key),
         "env_files": [],
+        "shell_var": {},
         "recreate": [],
         "verify": [],
     }
@@ -198,9 +246,16 @@ def main() -> int:
         sys.stderr.write(f"[env] {ef:<16} {'OK' if r.get('ok') else 'FAIL'} "
                          f"{'changed' if r.get('changed') else r.get('note') or r.get('reason','')}\n")
 
+    # A stale inherited QDRANT_API_KEY shadows the env files in compose interpolation.
+    shell = sync_shell_var(new_key, apply)
+    out["shell_var"] = shell
+    ok = ok and shell.get("ok", False)
+    sys.stderr.write(f"[shell] {'OK' if shell.get('ok') else 'FAIL'} {shell['action']}"
+                     f"{' (stale shadow detected)' if shell.get('shadowing') else ''}\n")
+
     if args.recreate and ok:
         for tid, ef, cf, proj in TENANTS:
-            r = recreate(cf, ef, proj)
+            r = recreate(cf, ef, proj, new_key)
             r["tenant"] = tid
             ok = ok and r["ok"]
             out["recreate"].append(r)
