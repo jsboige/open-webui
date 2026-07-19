@@ -3,7 +3,6 @@
 	import { getContext, onMount } from 'svelte';
 	const i18n = getContext('i18n');
 
-	import { settings } from '$lib/stores';
 	import { verifyOpenAIConnection } from '$lib/apis/openai';
 	import { verifyOllamaConnection } from '$lib/apis/ollama';
 
@@ -58,6 +57,11 @@
 
 	let loading = false;
 	let showDeleteConfirmDialog = false;
+
+	const inputClass =
+		'rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-gray-700 outline-hidden transition-colors placeholder:text-gray-300 focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:placeholder:text-gray-700 dark:focus:border-blue-500';
+	const selectClass =
+		'rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 pe-8 py-1.5 text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500';
 
 	const verifyOllamaHandler = async () => {
 		// remove trailing slash from url
@@ -248,8 +252,8 @@
 
 <Modal size="sm" bind:show>
 	<div>
-		<div class=" flex justify-between dark:text-gray-100 px-5 pt-4 pb-1.5">
-			<h1 class="text-lg font-medium self-center font-primary">
+		<div class=" flex justify-between dark:text-gray-100 px-4 pt-3 pb-1">
+			<h1 class="text-sm font-medium self-center">
 				{#if edit}
 					{$i18n.t('Edit Connection')}
 				{:else}
@@ -257,13 +261,13 @@
 				{/if}
 			</h1>
 			<button
-				class="self-center"
+				class="self-center rounded-lg p-1 text-gray-500 transition hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
 				aria-label={$i18n.t('Close modal')}
 				on:click={() => {
 					show = false;
 				}}
 			>
-				<XMark className={'size-5'} />
+				<XMark className={'size-4'} />
 			</button>
 		</div>
 
@@ -306,14 +310,13 @@
 								<label
 									for="url-input"
 									class={`mb-0.5 text-xs text-gray-500
-								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
-									>{$i18n.t('URL')}</label
+								`}>{$i18n.t('URL')}</label
 								>
 
 								<div class="flex-1">
 									<input
 										id="url-input"
-										class={`w-full text-sm bg-transparent ${($settings?.highContrastMode ?? false) ? 'placeholder:text-gray-700 dark:placeholder:text-gray-100' : 'outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700'}`}
+										class={`w-full text-sm ${inputClass}`}
 										type="text"
 										bind:value={url}
 										placeholder={$i18n.t('API Base URL')}
@@ -338,7 +341,7 @@
 
 							<Tooltip content={$i18n.t('Verify Connection')} className="self-end -mb-1">
 								<button
-									class="self-center p-1 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-850 rounded-lg transition"
+									class="self-center p-1 bg-transparent hover:bg-gray-50/70 dark:hover:bg-gray-850/50 rounded-lg transition"
 									on:click={() => {
 										verifyHandler();
 									}}
@@ -373,9 +376,7 @@
 
 						<div class="flex gap-2 mt-2">
 							<div class="flex flex-col w-full">
-								<label
-									for="select-bearer-or-session"
-									class={`text-xs ${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'}`}
+								<label for="select-bearer-or-session" class={`text-xs text-gray-500`}
 									>{$i18n.t('Auth')}</label
 								>
 
@@ -383,7 +384,7 @@
 									<div class="flex-shrink-0 self-start">
 										<select
 											id="select-bearer-or-session"
-											class={`dark:bg-gray-900 w-full text-sm bg-transparent pr-5 ${($settings?.highContrastMode ?? false) ? 'placeholder:text-gray-700 dark:placeholder:text-gray-100' : 'outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700'}`}
+											class={`w-full text-sm ${selectClass}`}
 											bind:value={auth_type}
 										>
 											<option value="none">{$i18n.t('None')}</option>
@@ -407,27 +408,19 @@
 												required={false}
 											/>
 										{:else if auth_type === 'none'}
-											<div
-												class={`text-xs self-center translate-y-[1px] ${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'}`}
-											>
+											<div class={`text-xs self-center translate-y-[1px] text-gray-500`}>
 												{$i18n.t('No authentication')}
 											</div>
 										{:else if auth_type === 'session'}
-											<div
-												class={`text-xs self-center translate-y-[1px] ${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'}`}
-											>
+											<div class={`text-xs self-center translate-y-[1px] text-gray-500`}>
 												{$i18n.t('Forwards system user session credentials to authenticate')}
 											</div>
 										{:else if auth_type === 'system_oauth'}
-											<div
-												class={`text-xs self-center translate-y-[1px] ${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'}`}
-											>
+											<div class={`text-xs self-center translate-y-[1px] text-gray-500`}>
 												{$i18n.t('Forwards system user OAuth access token to authenticate')}
 											</div>
 										{:else if ['azure_ad', 'microsoft_entra_id'].includes(auth_type)}
-											<div
-												class={`text-xs self-center translate-y-[1px] ${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'}`}
-											>
+											<div class={`text-xs self-center translate-y-[1px] text-gray-500`}>
 												{$i18n.t('Uses DefaultAzureCredential to authenticate')}
 											</div>
 										{/if}
@@ -442,8 +435,7 @@
 									<label
 										for="headers-input"
 										class={`mb-0.5 text-xs text-gray-500
-								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
-										>{$i18n.t('Headers')}</label
+								`}>{$i18n.t('Headers')}</label
 									>
 
 									<div class="flex-1">
@@ -470,8 +462,7 @@
 								<label
 									for="prefix-id-input"
 									class={`mb-0.5 text-xs text-gray-500
-								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
-									>{$i18n.t('Prefix ID')}</label
+								`}>{$i18n.t('Prefix ID')}</label
 								>
 
 								<div class="flex-1">
@@ -481,7 +472,7 @@
 										)}
 									>
 										<input
-											class={`w-full text-sm bg-transparent ${($settings?.highContrastMode ?? false) ? 'placeholder:text-gray-700 dark:placeholder:text-gray-100' : 'outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700'}`}
+											class={`w-full text-sm ${inputClass}`}
 											type="text"
 											id="prefix-id-input"
 											bind:value={prefixId}
@@ -498,8 +489,7 @@
 								<label
 									for="provider-select"
 									class={`mb-0.5 text-xs text-gray-500
-								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
-									>{$i18n.t('Provider')}</label
+								`}>{$i18n.t('Provider')}</label
 								>
 
 								<div>
@@ -522,14 +512,13 @@
 									<label
 										for="api-version-input"
 										class={`mb-0.5 text-xs text-gray-500
-										${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
-										>{$i18n.t('API Version')}</label
+										`}>{$i18n.t('API Version')}</label
 									>
 
 									<div class="flex-1">
 										<input
 											id="api-version-input"
-											class={`w-full text-sm bg-transparent ${($settings?.highContrastMode ?? false) ? 'placeholder:text-gray-700 dark:placeholder:text-gray-100' : 'outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700'}`}
+											class={`w-full text-sm ${inputClass}`}
 											type="text"
 											bind:value={apiVersion}
 											placeholder={$i18n.t('API Version')}
@@ -546,8 +535,7 @@
 								<label
 									for="api-type-toggle"
 									class={`mb-0.5 text-xs text-gray-500
-							${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
-									>{$i18n.t('API Type')}</label
+							`}>{$i18n.t('API Type')}</label
 								>
 
 								<div>
@@ -566,7 +554,8 @@
 													'This feature is currently experimental and may not work as expected.'
 												)}
 											>
-												<span class=" text-gray-400 dark:text-gray-600"
+												<span
+													class="inline-flex items-center text-[0.625rem] font-normal uppercase leading-none text-gray-400 dark:text-gray-600"
 													>{$i18n.t('Experimental')}</span
 												>
 
@@ -584,7 +573,7 @@
 							<div class="mb-1 flex justify-between">
 								<div
 									class={`mb-0.5 text-xs text-gray-500
-								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
+								`}
 								>
 									{$i18n.t('Model IDs')}
 								</div>
@@ -616,7 +605,7 @@
 							{:else}
 								<div
 									class={`text-gray-500 text-xs text-center py-2 px-10
-								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
+								`}
 								>
 									{#if ollama}
 										{$i18n.t('Leave empty to include all models from "{{url}}/api/tags" endpoint', {
@@ -639,11 +628,7 @@
 						<div class="flex items-center">
 							<label class="sr-only" for="add-model-id-input">{$i18n.t('Add a model ID')}</label>
 							<input
-								class="w-full py-1 text-sm rounded-lg bg-transparent {modelId
-									? ''
-									: 'text-gray-500'} {($settings?.highContrastMode ?? false)
-									? 'dark:placeholder:text-gray-100 placeholder:text-gray-700'
-									: 'placeholder:text-gray-300 dark:placeholder:text-gray-700 outline-hidden'}"
+								class={`w-full text-sm ${inputClass} ${modelId ? '' : 'text-gray-500'}`}
 								bind:value={modelId}
 								id="add-model-id-input"
 								placeholder={$i18n.t('Add a model ID')}
@@ -667,7 +652,7 @@
 						<div class="flex flex-col w-full">
 							<div
 								class={`mb-0.5 text-xs text-gray-500
-								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
+								`}
 							>
 								{$i18n.t('Tags')}
 							</div>
@@ -691,11 +676,11 @@
 						</div>
 					</div>
 
-					<div class="flex justify-between items-center pt-3 text-sm font-medium">
+					<div class="flex justify-between items-center pt-3 text-sm font-normal">
 						<div>
 							{#if edit}
 								<button
-									class="px-1 py-1.5 text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:underline transition"
+									class="px-1 py-1.5 text-sm font-normal text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:underline transition"
 									type="button"
 									on:click={() => {
 										showDeleteConfirmDialog = true;
@@ -707,7 +692,7 @@
 						</div>
 
 						<button
-							class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full flex items-center gap-2 whitespace-nowrap {loading
+							class="px-3.5 py-1.5 text-sm font-normal bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full flex items-center gap-2 whitespace-nowrap {loading
 								? ' cursor-not-allowed'
 								: ''}"
 							type="submit"

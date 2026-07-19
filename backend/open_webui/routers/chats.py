@@ -14,6 +14,7 @@ from open_webui.events import EVENTS, publish_event
 from open_webui.internal.db import get_async_session
 from open_webui.models.access_grants import AccessGrants
 from open_webui.models.config import Config
+from open_webui.models.chat_messages import ChatMessages
 from open_webui.models.chats import (
     AggregateChatStats,
     ChatBody,
@@ -26,6 +27,7 @@ from open_webui.models.chats import (
     ChatStatsExport,
     ChatTitleIdResponse,
     ChatUsageStatsListResponse,
+    is_internal_chat,
     MessageStats,
 )
 from open_webui.models.folders import Folders
@@ -36,7 +38,7 @@ from open_webui.tasks import has_active_tasks, stop_item_tasks
 from open_webui.utils.access_control import filter_allowed_access_grants, has_permission
 from open_webui.utils.access_control.folders import has_folder_access
 from open_webui.utils.auth import get_admin_user, get_verified_user
-from open_webui.utils.context_compaction import compact_chat_branch
+from open_webui.utils.context_compaction import compact_chat_branch, get_chat_context_usage
 from open_webui.utils.misc import get_message_list
 from open_webui.utils.models import get_all_models
 from pydantic import BaseModel
@@ -51,13 +53,28 @@ SEARCH_FILTER_PREFIXES = ('tag:', 'folder:', 'pinned:', 'archived:', 'shared:')
 CHAT_CONFIG_KEYS = {
     'ENABLE_CONTEXT_COMPACTION': 'chat.context_compaction.enable',
     'CONTEXT_COMPACTION_TOKEN_THRESHOLD': 'chat.context_compaction.token_threshold',
+    'CONTEXT_COMPACTION_TOKEN_CAP': 'chat.context_compaction.token_cap',
     'CONTEXT_COMPACTION_PROMPT_TEMPLATE': 'chat.context_compaction.prompt_template',
 }
+
+
+async def add_active_state_to_chat_list(
+    request: Request, chat_list: list[ChatTitleIdResponse]
+) -> list[ChatTitleIdResponse]:
+    for chat in chat_list:
+        chat.active = False
+        if not await has_active_tasks(request.app.state.redis, chat.id):
+            continue
+
+        chat.active = await ChatMessages.has_unfinished_assistant_by_chat_id(chat.id)
+
+    return chat_list
 
 
 class ChatConfigForm(BaseModel):
     ENABLE_CONTEXT_COMPACTION: bool
     CONTEXT_COMPACTION_TOKEN_THRESHOLD: int
+    CONTEXT_COMPACTION_TOKEN_CAP: int | None = None
     CONTEXT_COMPACTION_PROMPT_TEMPLATE: str
 
 
@@ -104,7 +121,10 @@ def chat_search_snippet(chat: dict, search_text: str, max_length: int = 200) -> 
 
 async def get_chat_config_values() -> dict:
     values = await Config.get_many(*CHAT_CONFIG_KEYS.values())
-    return {field: values[storage_key] for field, storage_key in CHAT_CONFIG_KEYS.items() if storage_key in values}
+    config = {field: values[storage_key] for field, storage_key in CHAT_CONFIG_KEYS.items() if storage_key in values}
+    if config.get('CONTEXT_COMPACTION_TOKEN_CAP') is None:
+        config['CONTEXT_COMPACTION_TOKEN_CAP'] = config.get('CONTEXT_COMPACTION_TOKEN_THRESHOLD', 80000)
+    return config
 
 
 def chat_config_updates(data: dict) -> dict:
@@ -131,6 +151,7 @@ async def require_chat_import_permission(request: Request, user, db: AsyncSessio
 @router.get('/', response_model=list[ChatTitleIdResponse])
 @router.get('/list', response_model=list[ChatTitleIdResponse])
 async def get_session_user_chat_list(
+    request: Request,
     user=Depends(get_verified_user),
     page: int | None = None,
     include_pinned: bool | None = False,
@@ -142,7 +163,7 @@ async def get_session_user_chat_list(
             limit = 60
             skip = (page - 1) * limit
 
-            return await Chats.get_chat_title_id_list_by_user_id(
+            chats = await Chats.get_chat_title_id_list_by_user_id(
                 user.id,
                 include_folders=include_folders,
                 include_pinned=include_pinned,
@@ -151,12 +172,13 @@ async def get_session_user_chat_list(
                 db=db,
             )
         else:
-            return await Chats.get_chat_title_id_list_by_user_id(
+            chats = await Chats.get_chat_title_id_list_by_user_id(
                 user.id,
                 include_folders=include_folders,
                 include_pinned=include_pinned,
                 db=db,
             )
+        return await add_active_state_to_chat_list(request, chats)
     except Exception as e:
         log.exception(e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.DEFAULT())
@@ -599,6 +621,7 @@ async def delete_all_user_chats(
 
 @router.get('/list/user/{user_id}', response_model=list[ChatTitleIdResponse])
 async def get_user_chat_list_by_user_id(
+    request: Request,
     user_id: str,
     page: int | None = None,
     query: str | None = None,
@@ -623,9 +646,10 @@ async def get_user_chat_list_by_user_id(
     if direction:
         filter['direction'] = direction
 
-    return await Chats.get_chat_list_by_user_id(
+    chats = await Chats.get_chat_list_by_user_id(
         user_id, include_archived=True, filter=filter, skip=skip, limit=limit, db=db
     )
+    return await add_active_state_to_chat_list(request, chats)
 
 
 ############################
@@ -712,11 +736,13 @@ async def get_chat_config(user=Depends(get_admin_user)):
 @router.post('/config', response_model=ChatConfigForm)
 async def set_chat_config(form_data: ChatConfigForm, user=Depends(get_admin_user)):
     threshold = max(1, int(form_data.CONTEXT_COMPACTION_TOKEN_THRESHOLD))
+    token_cap = max(1, int(form_data.CONTEXT_COMPACTION_TOKEN_CAP or threshold))
     await Config.upsert(
         chat_config_updates(
             {
                 **form_data.model_dump(),
                 'CONTEXT_COMPACTION_TOKEN_THRESHOLD': threshold,
+                'CONTEXT_COMPACTION_TOKEN_CAP': token_cap,
             }
         )
     )
@@ -730,6 +756,7 @@ async def set_chat_config(form_data: ChatConfigForm, user=Depends(get_admin_user
 
 @router.get('/search', response_model=list[ChatTitleIdResponse])
 async def search_user_chats(
+    request: Request,
     text: str,
     page: int | None = None,
     user=Depends(get_verified_user),
@@ -755,7 +782,7 @@ async def search_user_chats(
                 log.debug(f'deleting tag: {tag_id}')
                 await Tags.delete_tag_by_name_and_user_id(tag_id, user.id, db=db)
 
-    return chat_list
+    return await add_active_state_to_chat_list(request, chat_list)
 
 
 ############################
@@ -778,8 +805,9 @@ async def get_chats_by_folder_id(
     ]
 
 
-@router.get('/folder/{folder_id}/list')
+@router.get('/folder/{folder_id}/list', response_model=list[ChatTitleIdResponse])
 async def get_chat_list_by_folder_id(
+    request: Request,
     folder_id: str,
     page: int | None = 1,
     user=Depends(get_verified_user),
@@ -790,10 +818,7 @@ async def get_chat_list_by_folder_id(
         skip = (page - 1) * limit
 
         chats = await Chats.get_chats_by_folder_id_and_user_id(folder_id, user.id, skip=skip, limit=limit, db=db)
-        return [
-            {'title': chat.title, 'id': chat.id, 'updated_at': chat.updated_at, 'last_read_at': chat.last_read_at}
-            for chat in chats
-        ]
+        return await add_active_state_to_chat_list(request, chats)
 
     except Exception as e:
         log.exception(e)
@@ -806,8 +831,11 @@ async def get_chat_list_by_folder_id(
 
 
 @router.get('/pinned', response_model=list[ChatTitleIdResponse])
-async def get_user_pinned_chats(user=Depends(get_verified_user), db: AsyncSession = Depends(get_async_session)):
-    return await Chats.get_pinned_chats_by_user_id(user.id, db=db)
+async def get_user_pinned_chats(
+    request: Request, user=Depends(get_verified_user), db: AsyncSession = Depends(get_async_session)
+):
+    chats = await Chats.get_pinned_chats_by_user_id(user.id, db=db)
+    return await add_active_state_to_chat_list(request, chats)
 
 
 ############################
@@ -900,6 +928,7 @@ async def get_all_user_chats_in_db(user=Depends(get_admin_user), db: AsyncSessio
 
 @router.get('/archived', response_model=list[ChatTitleIdResponse])
 async def get_archived_session_user_chat_list(
+    request: Request,
     page: int | None = None,
     query: str | None = None,
     order_by: str | None = None,
@@ -921,13 +950,14 @@ async def get_archived_session_user_chat_list(
     if direction:
         filter['direction'] = direction
 
-    return await Chats.get_archived_chat_list_by_user_id(
+    chats = await Chats.get_archived_chat_list_by_user_id(
         user.id,
         filter=filter,
         skip=skip,
         limit=limit,
         db=db,
     )
+    return await add_active_state_to_chat_list(request, chats)
 
 
 ############################
@@ -1095,6 +1125,7 @@ class TagFilterForm(TagForm):
 
 @router.post('/tags', response_model=list[ChatTitleIdResponse])
 async def get_user_chat_list_by_tag_name(
+    request: Request,
     form_data: TagFilterForm,
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
@@ -1105,7 +1136,7 @@ async def get_user_chat_list_by_tag_name(
     if len(chats) == 0:
         await Tags.delete_tag_by_name_and_user_id(form_data.name, user.id, db=db)
 
-    return chats
+    return await add_active_state_to_chat_list(request, chats)
 
 
 ############################
@@ -1149,6 +1180,7 @@ async def compact_chat_by_id(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='No model found for context compaction.')
 
     result = await compact_chat_branch(request, user, chat, model_id, request.app.state.MODELS)
+    result['context_usage'] = await get_chat_context_usage(chat, model_id)
     if result.get('compacted'):
         await publish_event(
             request,
@@ -1171,8 +1203,10 @@ async def get_chat_by_id(id: str, user=Depends(get_verified_user), db: AsyncSess
 
     if not chat:
         # Check if user has access via access grants (shared_chat grants)
-        if user.role == 'admin' and ENABLE_ADMIN_CHAT_ACCESS:
-            chat = await Chats.get_chat_by_id(id, db=db)
+        if user.role == 'admin':
+            candidate = await Chats.get_chat_by_id(id, db=db)
+            if ENABLE_ADMIN_CHAT_ACCESS or (candidate and is_internal_chat(candidate.meta)):
+                chat = candidate
         else:
             has_grant = await AccessGrants.has_access(
                 user_id=user.id,
@@ -1193,7 +1227,9 @@ async def get_chat_by_id(id: str, user=Depends(get_verified_user), db: AsyncSess
                         chat = candidate
 
     if chat:
-        return ChatResponse(**chat.model_dump())
+        data = ChatResponse(**chat.model_dump()).model_dump()
+        data['context_usage'] = await get_chat_context_usage(chat)
+        return data
 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND)
 
@@ -1423,6 +1459,13 @@ async def delete_chat_by_id(
     # before deleting the chat to prevent orphaned requests.
     await stop_item_tasks(request.app.state.redis, id)
 
+    async def delete_internal_children(owner_id: str) -> None:
+        child_ids = await Chats.get_internal_chat_ids_by_parent_id(id, owner_id)
+        for child_id in child_ids:
+            await stop_item_tasks(request.app.state.redis, child_id)
+            await Chats.delete_chat_by_id_and_user_id(child_id, owner_id)
+        await stop_item_tasks(request.app.state.redis, id)
+
     if user.role == 'admin':
         chat = await Chats.get_chat_by_id(id, db=db)
         if not chat:
@@ -1431,6 +1474,7 @@ async def delete_chat_by_id(
                 detail=ERROR_MESSAGES.NOT_FOUND,
             )
         await Chats.delete_orphan_tags_for_user(chat.meta.get('tags', []), user.id, threshold=1, db=db)
+        await delete_internal_children(chat.user_id)
 
         result = await Chats.delete_chat_by_id(id, db=db)
 
@@ -1457,6 +1501,7 @@ async def delete_chat_by_id(
                 detail=ERROR_MESSAGES.NOT_FOUND,
             )
         await Chats.delete_orphan_tags_for_user(chat.meta.get('tags', []), user.id, threshold=1, db=db)
+        await delete_internal_children(user.id)
 
         result = await Chats.delete_chat_by_id_and_user_id(id, user.id, db=db)
         if result:

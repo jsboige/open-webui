@@ -43,13 +43,14 @@
 	export let readOnly = false;
 	export let editCodeBlock = true;
 	export let topPadding = false;
+	export let onInsertToNote: ((content: string) => void) | null = null;
 </script>
 
 <div
 	role="listitem"
 	class="flex flex-col justify-between px-5 mb-3 w-full {($settings?.widescreenMode ?? null)
 		? 'max-w-full'
-		: 'max-w-5xl'} mx-auto rounded-lg group message-listitem"
+		: 'max-w-[58rem]'} mx-auto rounded-lg group message-listitem"
 >
 	{#if history.messages[messageId]}
 		{#if history.messages[messageId].role === 'user'}
@@ -72,6 +73,7 @@
 				{readOnly}
 				{editCodeBlock}
 				{topPadding}
+				{onInsertToNote}
 			/>
 		{:else if (history.messages[history.messages[messageId].parentId]?.models?.length ?? 1) === 1}
 			<ResponseMessage
@@ -123,6 +125,7 @@
 					{readOnly}
 					{editCodeBlock}
 					{topPadding}
+					{onInsertToNote}
 				/>
 			{/key}
 		{/if}

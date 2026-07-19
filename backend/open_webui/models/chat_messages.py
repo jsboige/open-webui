@@ -100,6 +100,7 @@ class ChatMessage(Base):
     files = Column(JSON, nullable=True)
     sources = Column(JSON, nullable=True)
     embeds = Column(JSON, nullable=True)
+    meta = Column(JSON, nullable=True)
 
     # Status
     done = Column(Boolean, default=True)
@@ -142,6 +143,7 @@ class ChatMessageModel(BaseModel):
     files: Optional[list] = None
     sources: Optional[list] = None
     embeds: Optional[list] = None
+    meta: Optional[dict] = None
     done: bool = True
     status_history: Optional[list] = None
     error: Optional[dict | str] = None
@@ -192,6 +194,8 @@ class ChatMessageTable:
                     existing.sources = data.get('sources')
                 if 'embeds' in data:
                     existing.embeds = data.get('embeds')
+                if 'meta' in data:
+                    existing.meta = data.get('meta')
                 if 'done' in data:
                     existing.done = data.get('done', True)
                 if 'status_history' in data or 'statusHistory' in data:
@@ -225,6 +229,7 @@ class ChatMessageTable:
                     files=data.get('files'),
                     sources=data.get('sources'),
                     embeds=data.get('embeds'),
+                    meta=data.get('meta'),
                     done=data.get('done', True),
                     status_history=data.get('status_history') or data.get('statusHistory'),
                     error=data.get('error'),
@@ -242,6 +247,21 @@ class ChatMessageTable:
         async with get_async_db_context(db) as db:
             message = await db.get(ChatMessage, id)
             return ChatMessageModel.model_validate(message) if message else None
+
+    async def has_unfinished_assistant_by_chat_id(
+        self,
+        chat_id: str,
+        db: Optional[AsyncSession] = None,
+    ) -> bool:
+        async with get_async_db_context(db) as db:
+            result = await db.execute(
+                select(ChatMessage.id)
+                .where(ChatMessage.chat_id == chat_id)
+                .where(ChatMessage.role == 'assistant')
+                .where(ChatMessage.done.is_(False))
+                .limit(1)
+            )
+            return result.scalar_one_or_none() is not None
 
     async def get_messages_by_chat_id(self, chat_id: str, db: Optional[AsyncSession] = None) -> list[ChatMessageModel]:
         async with get_async_db_context(db) as db:

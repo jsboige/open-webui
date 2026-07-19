@@ -529,6 +529,12 @@ async def chat_events(sid, data):
 
     if event_type == 'last_read_at':
         await Chats.update_chat_last_read_at_by_id(data['chat_id'], user['id'])
+        try:
+            from open_webui.utils.timers import cancel_timers_for_chat
+
+            await cancel_timers_for_chat(data['chat_id'], 'chat.read')
+        except Exception:
+            log.exception('Failed to cancel chat.read timers for chat %s', data.get('chat_id'))
 
 
 def normalize_document_id(document_id: str) -> str:
@@ -925,12 +931,17 @@ async def get_event_emitter(request_info, update_db=True):
         user_id = request_info['user_id']
         chat_id = request_info['chat_id']
         message_id = request_info['message_id']
+        internal = request_info.get('internal') is True
+
+        if internal and event_data.get('type') == 'notification':
+            return
 
         await sio.emit(
             'events',
             {
                 'chat_id': chat_id,
                 'message_id': message_id,
+                **({'internal': True} if internal else {}),
                 'data': event_data,
             },
             room=f'user:{user_id}',
@@ -992,6 +1003,7 @@ async def get_event_emitter(request_info, update_db=True):
                     {
                         'embeds': embeds,
                     },
+                    touch=False,
                 )
 
             elif event_type == 'files':
@@ -1009,6 +1021,7 @@ async def get_event_emitter(request_info, update_db=True):
                     {
                         'files': files,
                     },
+                    touch=False,
                 )
 
             elif event_type in ('source', 'citation'):
@@ -1028,6 +1041,7 @@ async def get_event_emitter(request_info, update_db=True):
                         {
                             'sources': sources,
                         },
+                        touch=False,
                     )
 
     if 'user_id' in request_info and 'chat_id' in request_info and 'message_id' in request_info:
