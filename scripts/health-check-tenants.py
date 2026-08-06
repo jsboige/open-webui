@@ -218,7 +218,7 @@ def main():
         metavar="EXPECTED_TAG",
         default=None,
         help="Also verify each tenant's RUNNING container image is pinned to this tag "
-        "(e.g. v0.10.2-cuda) via docker inspect. Catches silent drift after a recreate. "
+        "(e.g. v0.11.0) via docker inspect. Catches silent drift after a recreate. "
         "Needs docker access to the host running the fleet.",
     )
     parser.add_argument("--env-file", default=".env", help="Path to .env file")

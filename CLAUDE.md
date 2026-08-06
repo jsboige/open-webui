@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **fork/clone of Open WebUI** (v0.8.5) — an extensible, self-hosted AI chat platform. This instance runs **multiple tenant deployments** via per-tenant docker-compose and env files.
+This is a **fork/clone of Open WebUI** (v0.11.0) — an extensible, self-hosted AI chat platform. This instance runs **multiple tenant deployments** via per-tenant docker-compose and env files.
 
-**Stack**: SvelteKit 2 + Svelte 5 (frontend) / FastAPI 0.128 + SQLAlchemy 2 (backend) / Python 3.11+
+**Stack**: SvelteKit 2 + Svelte 5 (frontend) / FastAPI 0.136 + SQLAlchemy 2 (backend) / Python 3.11+
 
 > **Deployment details** (infrastructure, tenants, services, machine fleet, maintenance roadmap) are in `.claude/DEPLOYMENT.md` (not committed — local only).
 
@@ -70,7 +70,7 @@ make update              # git pull + rebuild + restart
 - **`lib/utils/`** — Shared utility functions
 
 ### Key Patterns
-- **Auth**: JWT tokens via `python-jose`, RBAC with user groups. Multiple backends (local, LDAP, OAuth, SAML, SCIM 2.0)
+- **Auth**: JWT tokens via `PyJWT` (`utils/auth.py` imports `jwt`; `python-jose` was dropped upstream — `joserfc` remains for JWKS/OIDC), RBAC with user groups. Multiple backends (local, LDAP, OAuth, SAML, SCIM 2.0)
 - **Real-time**: python-socketio for streaming chat responses and presence
 - **Sessions**: StarSessions with optional Redis backend for horizontal scaling
 - **Config**: Most settings stored in database and configurable at runtime via admin UI. Environment variables in `env.py` serve as defaults/overrides
@@ -119,3 +119,4 @@ make update              # git pull + rebuild + restart
 - Docker Compose `--env-file` only interpolates into the compose file — variables must also be in the `environment:` section to reach the container
 - Tika image has wget, NOT curl — healthcheck must use `wget --spider -q`
 - Volume naming: volumes are prefixed with project name. Use `external: true` + `name:` to reference existing volumes when changing project names
+- Boot-testing an image with `docker run` and no config looks hung: a default install has `RAG_EMBEDDING_ENGINE` empty, so it downloads `sentence-transformers/all-MiniLM-L6-v2` (30 files) from HuggingFace before serving `/health`. The tenants never do this (external `openai` engine). Pass `-e RAG_EMBEDDING_ENGINE=openai` for a representative test — `/health` then answers in ~20s
