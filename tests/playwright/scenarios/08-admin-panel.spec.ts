@@ -22,9 +22,11 @@ test.describe('08 — Admin Panel', () => {
 
   test('admin settings page loads', async ({ page }) => {
     await page.goto('/admin/settings');
-    // Look for the "Réglages" link in navigation
+    // v0.11 moved admin settings into the settings window: they are no longer a
+    // "Réglages" nav link but tabs ("Général", "Connexions", "Base de données",
+    // ...). The page itself never stopped loading — only the role changed.
     await expect(
-      page.getByRole('link', { name: /réglages|settings/i }).first()
+      page.getByRole('tab', { name: /général|general/i }).first()
     ).toBeVisible({ timeout: 15_000 });
   });
 
