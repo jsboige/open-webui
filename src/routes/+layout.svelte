@@ -54,6 +54,7 @@
 	import { getSessionUser, updateUserTimezone, userSignOut } from '$lib/apis/auths';
 	import { getAllTags } from '$lib/apis/chats';
 	import { chatCompletion } from '$lib/apis/openai';
+	import { isTemporaryChatId } from '$lib/utils/chatId';
 	import {
 		addOpenAIConnection,
 		removeOpenAIConnection,
@@ -497,7 +498,7 @@
 		// Skip events from temporary chats that are not the current chat.
 		// This prevents notifications from being sent to other tabs/devices
 		// for privacy, since temporary chats are not meant to be persisted or visible elsewhere.
-		const isTemporaryChat = event.chat_id?.startsWith('local:');
+		const isTemporaryChat = isTemporaryChatId(event.chat_id);
 		if (isTemporaryChat && event.chat_id !== $chatId) {
 			return;
 		}
@@ -539,7 +540,7 @@
 
 			if ($isLastActiveTab) {
 				if ($settings?.notificationEnabled ?? false) {
-					new Notification(`${data.title} • Open WebUI`, {
+					new Notification(`${data.title} / Open WebUI`, {
 						body: timeStr,
 						icon: `${WEBUI_BASE_URL}/static/favicon.png`
 					});
@@ -674,7 +675,7 @@
 
 					if ($isLastActiveTab) {
 						if ($settings?.notificationEnabled ?? false) {
-							new Notification(`${displayTitle} • Open WebUI`, {
+							new Notification(`${displayTitle} / Open WebUI`, {
 								body: contentPreview,
 								icon: `${WEBUI_BASE_URL}/static/favicon.png`
 							});
@@ -781,7 +782,7 @@
 
 				if ($isLastActiveTab) {
 					if ($settings?.notificationEnabled ?? false) {
-						new Notification(`${title} • Open WebUI`, {
+						new Notification(`${title} / Open WebUI`, {
 							body: data?.content,
 							icon: `${WEBUI_API_BASE_URL}/users/${data?.user?.id}/profile/image`
 						});
@@ -837,8 +838,8 @@
 		}
 	};
 
-	const redirectToAuthAfterUnauthorized = () => {
-		if (isAuthRedirectInProgress || window.location.pathname === '/auth') {
+	const clearExpiredSession = () => {
+		if (isAuthRedirectInProgress) {
 			return;
 		}
 
@@ -849,15 +850,13 @@
 		}
 		user.set(null);
 		localStorage.removeItem('token');
+		// Clear the OAuth token cookie so /auth doesn't auto-login and redirect-loop
+		document.cookie = 'token=; Max-Age=0; path=/';
 		userSignOut().catch((error) => {
 			console.error('Error signing out expired session:', error);
 		});
 		toast.error($i18n.t('Session expired. Please sign in again.'));
-
-		const currentPath = `${window.location.pathname}${window.location.search}`;
-		goto(`/auth?redirect=${encodeURIComponent(currentPath)}`).finally(() => {
-			isAuthRedirectInProgress = false;
-		});
+		isAuthRedirectInProgress = false;
 	};
 
 	const isCurrentSessionUnauthorized = async (originalFetch) => {
@@ -883,7 +882,7 @@
 		}
 
 		if (now >= exp - TOKEN_EXPIRY_BUFFER) {
-			redirectToAuthAfterUnauthorized();
+			clearExpiredSession();
 		}
 	};
 
@@ -1001,7 +1000,7 @@
 				isAuthenticatedBackendFetch(input, init) &&
 				(await isCurrentSessionUnauthorized(originalFetch))
 			) {
-				redirectToAuthAfterUnauthorized();
+				clearExpiredSession();
 			}
 
 			return response;
@@ -1187,9 +1186,6 @@
 			if ($config) {
 				await setupSocket($config.features?.enable_websocket ?? true);
 
-				const currentUrl = `${window.location.pathname}${window.location.search}`;
-				const encodedUrl = encodeURIComponent(currentUrl);
-
 				if (localStorage.token) {
 					// Get Session User Info
 					const sessionUser = await getSessionUser(localStorage.token).catch((error) => {
@@ -1221,15 +1217,8 @@
 								.catch(() => {});
 						}
 					} else {
-						// Redirect Invalid Session User to /auth Page
 						localStorage.removeItem('token');
-						await goto(`/auth?redirect=${encodedUrl}`);
-					}
-				} else {
-					// Don't redirect if we're already on the auth page
-					// Needed because we pass in tokens from OAuth logins via URL fragments
-					if ($page.url.pathname !== '/auth') {
-						await goto(`/auth?redirect=${encodedUrl}`);
+						await user.set(null);
 					}
 				}
 			}
@@ -1291,6 +1280,13 @@
 		};
 	});
 
+	$: if (typeof document !== 'undefined') {
+		document.documentElement.classList.toggle(
+			'high-contrast',
+			$settings?.highContrastMode ?? false
+		);
+	}
+
 	onDestroy(() => {
 		bc.close();
 	});
@@ -1310,6 +1306,13 @@
 		crossorigin="use-credentials"
 	/>
 </svelte:head>
+
+<a
+	href="#main-content"
+	class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[9999] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-gray-900 focus:shadow-lg dark:focus:bg-gray-800 dark:focus:text-gray-100"
+>
+	{$i18n.t('Skip to main content')}
+</a>
 
 {#if showRefresh}
 	<div class=" py-5">

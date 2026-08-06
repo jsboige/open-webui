@@ -32,6 +32,7 @@
 	let widescreenMode = false;
 	let splitLargeChunks = false;
 	let scrollOnBranchChange = true;
+	let scrollOnResponseGeneration = true;
 	let showFilesOnTerminalSelect = true;
 	let userLocation = false;
 
@@ -89,6 +90,9 @@
 	// Admin - Show Update Available Toast
 	let showUpdateToast = true;
 	let showChangelog = true;
+
+	// File
+	let defaultUploadContext: 'full' | 'focused' = 'focused';
 
 	let showEmojiInCall = false;
 	let voiceInterruption = false;
@@ -250,6 +254,7 @@
 		widescreenMode = $settings?.widescreenMode ?? false;
 		splitLargeChunks = $settings?.splitLargeChunks ?? false;
 		scrollOnBranchChange = $settings?.scrollOnBranchChange ?? true;
+		scrollOnResponseGeneration = $settings?.scrollOnResponseGeneration ?? true;
 		showFilesOnTerminalSelect = $settings?.showFilesOnTerminalSelect ?? true;
 
 		temporaryChatByDefault = $settings?.temporaryChatByDefault ?? false;
@@ -281,6 +286,8 @@
 		webSearch = $settings?.webSearch ?? null;
 
 		textScale = $settings?.textScale ?? null;
+
+		defaultUploadContext = $settings?.defaultUploadContext ?? 'focused';
 	});
 </script>
 
@@ -931,6 +938,28 @@
 
 			<div>
 				<div class={settingRowClass}>
+					<div id="response-auto-scroll-label" class={settingLabelClass}>
+						{$i18n.t('Response Auto-Scroll')}
+					</div>
+
+					<div class={settingControlClass}>
+						<Switch
+							ariaLabelledbyId="response-auto-scroll-label"
+							tooltip={true}
+							bind:state={scrollOnResponseGeneration}
+							on:change={() => {
+								saveSettings({ scrollOnResponseGeneration });
+							}}
+						/>
+					</div>
+				</div>
+				<p class={settingDescriptionClass}>
+					{$i18n.t('Follow assistant responses as they are generated.')}
+				</p>
+			</div>
+
+			<div>
+				<div class={settingRowClass}>
 					<div id="insert-suggestion-prompt-label" class={settingLabelClass}>
 						{$i18n.t('Insert Suggestion Prompt to Input')}
 					</div>
@@ -1487,6 +1516,33 @@
 			</div>
 
 			<div class={sectionHeadingClass}>{$i18n.t('File')}</div>
+
+			<div>
+				<div class={settingRowClass}>
+					<div id="default-upload-mode-label" class={settingLabelClass}>
+						{$i18n.t('Default Upload Mode')}
+					</div>
+
+					<button
+						aria-labelledby="default-upload-mode-label default-upload-mode-state"
+						class={actionButtonClass}
+						on:click={() => {
+							defaultUploadContext = defaultUploadContext === 'full' ? 'focused' : 'full';
+							saveSettings({ defaultUploadContext });
+						}}
+						type="button"
+					>
+						<span id="default-upload-mode-state">
+							{defaultUploadContext === 'full'
+								? $i18n.t('Using Entire Document')
+								: $i18n.t('Using Focused Retrieval')}
+						</span>
+					</button>
+				</div>
+				<p class={settingDescriptionClass}>
+					{$i18n.t('Attach files with full content or focused retrieval by default.')}
+				</p>
+			</div>
 
 			<div>
 				<div class={settingRowClass}>

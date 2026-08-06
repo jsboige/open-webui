@@ -27,7 +27,14 @@
 		WEBUI_NAME,
 		sidebarWidth
 	} from '$lib/stores';
-	import { loadNextChatListPage, refreshChatList, setChatActive } from '$lib/stores/chatList';
+	import {
+		loadNextChatListPage,
+		refreshChatList,
+		registerFolderRefreshHandler,
+		setAllChatsRead,
+		setChatActive,
+		setChatReadAt
+	} from '$lib/stores/chatList';
 	import { onMount, getContext, tick, onDestroy } from 'svelte';
 
 	const i18n = getContext('i18n');
@@ -41,7 +48,8 @@
 		updateChatFolderIdById,
 		importChats,
 		deleteAllChats,
-		getChatListBySearchText
+		getChatListBySearchText,
+		markChatsRead
 	} from '$lib/apis/chats';
 	import {
 		createNewFolder,
@@ -80,6 +88,10 @@
 	import WorkspaceIcon from './Sidebar/icons/Workspace.svelte';
 	import { slide } from 'svelte/transition';
 	import HotkeyHint from '../common/HotkeyHint.svelte';
+	import Dropdown from '../common/Dropdown.svelte';
+	import DropdownMenu from '../common/DropdownMenu.svelte';
+	import CheckIcon from '../icons/Check.svelte';
+	import MoreHorizontalIcon from './Sidebar/icons/MoreHorizontal.svelte';
 
 	const BREAKPOINT = 768;
 	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
@@ -90,6 +102,15 @@
 	let shiftKey = false;
 
 	let selectedChatId = null;
+
+	// Keep the optimistic sidebar highlight in sync with the active chat. Leaving the
+	// chat view (e.g. navigating to an admin page) clears chatId, and programmatic
+	// navigation such as cloning moves chatId to a different chat — in both cases the
+	// previously-selected item must not stay highlighted. The optimistic on-click
+	// highlight is preserved because a click sets selectedChatId without changing
+	// chatId, so this reactive only re-runs once chatId catches up to the same value.
+	$: selectedChatId = $chatId || null;
+
 	let showCreateChannel = false;
 
 	// Pagination variables
@@ -106,9 +127,19 @@
 	let showChannels = false;
 	let showFolders = false;
 	let showSharedFolders = false;
+	let showChatsMenu = false;
 
 	let folders = {};
-	let folderRegistry: Record<string, { setFolderItems?: () => unknown }> = {};
+	let folderRegistry: Record<
+		string,
+		{
+			setFolderItems?: () => unknown;
+			upsertChat?: (chat: Record<string, unknown>) => unknown;
+			setChatActive?: (chatId: string, active: boolean) => boolean;
+			setChatReadAt?: (chatId: string, lastReadAt: number) => boolean;
+			setAllChatsRead?: () => unknown;
+		}
+	> = {};
 
 	let newFolderId = null;
 
@@ -372,6 +403,7 @@
 	const refreshChatRows = async () => {
 		const result = await refreshChatList(localStorage.token, { refreshPinned: true });
 		if (result.accepted) {
+			await initFolders();
 			await Promise.all(Object.values(folderRegistry).map((folder) => folder?.setFolderItems?.()));
 			allChatsLoaded = result.allLoaded;
 			chatListReady = true;
@@ -385,6 +417,52 @@
 		allChatsLoaded = result.allLoaded;
 
 		chatListLoading = false;
+	};
+
+	const applyFolderUnreadCounts = (folderUnreadCounts: Record<string, number>) => {
+		folders = Object.fromEntries(
+			Object.entries(folders).map(([id, folder]) => [
+				id,
+				id in folderUnreadCounts ? { ...folder, unread_count: folderUnreadCounts[id] } : folder
+			])
+		);
+		_folders.update((folderList) =>
+			folderList.map((folder) =>
+				folder.id in folderUnreadCounts
+					? { ...folder, unread_count: folderUnreadCounts[folder.id] }
+					: folder
+			)
+		);
+	};
+
+	const applyChatReadState = (data) => {
+		if (data?.folder_unread_counts) {
+			applyFolderUnreadCounts(data.folder_unread_counts);
+		}
+
+		if (data?.chat_id && typeof data?.last_read_at === 'number') {
+			setChatReadAt(data.chat_id, data.last_read_at);
+			for (const folder of Object.values(folderRegistry)) {
+				folder?.setChatReadAt?.(data.chat_id, data.last_read_at);
+			}
+		}
+	};
+
+	const markAllChatsReadHandler = async () => {
+		const res = await markChatsRead(localStorage.token).catch((error) => {
+			toast.error(`${error}`);
+			return null;
+		});
+		if (!res) return;
+
+		showChatsMenu = false;
+		if (res.folder_unread_counts) {
+			applyFolderUnreadCounts(res.folder_unread_counts);
+		}
+		setAllChatsRead();
+		for (const folder of Object.values(folderRegistry)) {
+			folder?.setAllChatsRead?.();
+		}
 	};
 
 	const importChatHandler = async (items, pinned = false, folderId = null) => {
@@ -640,6 +718,18 @@
 		socketInstance?.on('events', chatActiveEventHandler);
 		socketInstance?.on('connect', refreshChatRows);
 
+		const unregisterFolderRefreshHandler = registerFolderRefreshHandler((folderId, chat) => {
+			if (folderId) {
+				if (chat) {
+					return folderRegistry[folderId]?.upsertChat?.(chat);
+				}
+
+				return folderRegistry[folderId]?.setFolderItems?.();
+			}
+
+			return Promise.all(Object.values(folderRegistry).map((folder) => folder?.setFolderItems?.()));
+		});
+
 		await tick();
 		initPinnedMenuSortable();
 
@@ -663,6 +753,8 @@
 
 			socketInstance?.off('events', chatActiveEventHandler);
 			socketInstance?.off('connect', refreshChatRows);
+
+			unregisterFolderRefreshHandler();
 		};
 	});
 
@@ -670,16 +762,49 @@
 	const chatActiveEventHandler = async (event: {
 		chat_id: string;
 		message_id: string;
-		data: { type: string; data: { active?: boolean } };
+		data: {
+			type: string;
+			data: {
+				active?: boolean;
+				folder_id?: string | null;
+				last_read_at?: number;
+				folder_unread_counts?: Record<string, number>;
+			};
+		};
 	}) => {
 		if (event.data?.type === 'chat:active') {
-			const active = event.data.data.active ?? false;
+			const eventData = event.data.data ?? {};
+			const active = eventData.active ?? false;
 			const found = setChatActive(event.chat_id, active);
+			let foundInFolder = false;
+			for (const folder of Object.values(folderRegistry)) {
+				foundInFolder = folder?.setChatActive?.(event.chat_id, active) || foundInFolder;
+			}
+			if (!foundInFolder && active && eventData.folder_id) {
+				await folderRegistry[eventData.folder_id]?.setFolderItems?.();
+			}
 			if (!found && active) {
 				await refreshChatRows();
 			}
 		} else if (event.data?.type === 'chat:list') {
-			refreshChatRows();
+			const eventData = event.data.data ?? {};
+			const folderUnreadCounts = eventData.folder_unread_counts;
+			if (folderUnreadCounts) {
+				applyFolderUnreadCounts(folderUnreadCounts);
+			}
+
+			if (typeof eventData.last_read_at === 'number') {
+				setChatReadAt(event.chat_id, eventData.last_read_at);
+				for (const folder of Object.values(folderRegistry)) {
+					folder?.setChatReadAt?.(event.chat_id, eventData.last_read_at);
+				}
+				return;
+			}
+
+			await refreshChatRows();
+			if (eventData.folder_id) {
+				await folderRegistry[eventData.folder_id]?.setFolderItems?.();
+			}
 		}
 	};
 
@@ -807,6 +932,8 @@
 	<div
 		class=" w-[42px] shrink-0 py-1 px-1 flex flex-col justify-between text-gray-700 dark:text-gray-300 hover:bg-gray-50/30 dark:hover:bg-gray-800/30 h-full z-10 transition-all border-e-[0.5px] border-gray-50 dark:border-gray-850/30"
 		id="sidebar"
+		role="navigation"
+		aria-label={$i18n.t('Chat history')}
 	>
 		<button
 			class="flex flex-col flex-1 {isWindows ? 'cursor-pointer' : 'cursor-[e-resize]'}"
@@ -826,7 +953,7 @@
 						aria-label={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
 					>
 						<div
-							class=" self-center flex size-[30px] items-center justify-center rounded-lg transition group-hover:bg-gray-50/40 dark:group-hover:bg-gray-800/40"
+							class=" self-center flex size-[30px] items-center justify-center rounded-lg transition group-hover:bg-gray-50 dark:group-hover:bg-gray-900"
 						>
 							<img
 								src="{WEBUI_BASE_URL}/static/favicon.png"
@@ -857,7 +984,7 @@
 							aria-label={$i18n.t('New Chat')}
 						>
 							<div
-								class=" self-center flex size-[30px] items-center justify-center rounded-lg transition group-hover:bg-gray-50/40 dark:group-hover:bg-gray-800/40"
+								class=" self-center flex size-[30px] items-center justify-center rounded-lg transition group-hover:bg-gray-50 dark:group-hover:bg-gray-900"
 							>
 								<EditPencilIcon className="size-4" strokeWidth="1.5" />
 							</div>
@@ -879,7 +1006,7 @@
 							aria-label={$i18n.t('Search')}
 						>
 							<div
-								class=" self-center flex size-[30px] items-center justify-center rounded-lg transition group-hover:bg-gray-50/40 dark:group-hover:bg-gray-800/40"
+								class=" self-center flex size-[30px] items-center justify-center rounded-lg transition group-hover:bg-gray-50 dark:group-hover:bg-gray-900"
 							>
 								<SearchIcon className="size-4" strokeWidth="1.5" />
 							</div>
@@ -893,10 +1020,7 @@
 						<div class="">
 							<Tooltip content={$i18n.t(meta.label)} placement="right">
 								<a
-									class=" cursor-pointer flex size-8 items-center justify-center transition group {itemId ===
-									activeMenuItemId
-										? 'text-gray-900 dark:text-gray-100'
-										: ''}"
+									class=" cursor-pointer flex size-8 items-center justify-center transition group"
 									href={meta.href}
 									on:click={async (e) => {
 										e.stopImmediatePropagation();
@@ -910,8 +1034,10 @@
 									<div
 										class=" self-center flex size-[30px] items-center justify-center rounded-lg transition {itemId ===
 										activeMenuItemId
-											? 'bg-gray-100/80 dark:bg-gray-850/50'
-											: 'group-hover:bg-gray-50/40 dark:group-hover:bg-gray-800/40'}"
+											? ($settings?.highContrastMode ?? false)
+												? 'bg-black/[0.035] dark:bg-white/[0.06]'
+												: 'bg-black/[0.035] dark:bg-white/[0.045]'
+											: 'group-hover:bg-gray-50 dark:group-hover:bg-gray-900'}"
 									>
 										{#if itemId === 'notes'}
 											<NotesIcon className="size-4" strokeWidth="1.5" />
@@ -944,7 +1070,7 @@
 								aria-label={$i18n.t('User menu')}
 							>
 								<div
-									class="self-center relative flex size-[30px] items-center justify-center rounded-lg transition group-hover:bg-gray-50/40 dark:group-hover:bg-gray-800/40"
+									class="self-center relative flex size-[30px] items-center justify-center rounded-lg transition group-hover:bg-gray-50 dark:group-hover:bg-gray-900"
 								>
 									<img
 										src={`${WEBUI_API_BASE_URL}/users/${$user?.id}/profile/image`}
@@ -981,6 +1107,8 @@
 	<div
 		bind:this={navElement}
 		id="sidebar"
+		role="navigation"
+		aria-label={$i18n.t('Chat history')}
 		class="h-screen max-h-[100dvh] min-h-screen select-none {$showSidebar
 			? `${$mobile ? 'bg-gray-50 dark:bg-gray-950' : 'bg-gray-50/70 dark:bg-gray-950/70'} z-50`
 			: ' bg-transparent z-0 '} {$isApp
@@ -999,7 +1127,7 @@
 				class="sidebar px-1 pt-1.5 pb-1 flex justify-between space-x-1 text-gray-600 dark:text-gray-400 sticky top-0 z-10 -mb-2"
 			>
 				<a
-					class="flex items-center rounded-xl size-8.5 h-full justify-center hover:bg-gray-50/60 dark:hover:bg-gray-800/40 transition no-drag-region"
+					class="flex items-center rounded-xl size-8.5 h-full justify-center hover:bg-gray-50 dark:hover:bg-gray-900 transition no-drag-region"
 					href="/"
 					draggable="false"
 					on:click={newChatHandler}
@@ -1025,7 +1153,7 @@
 					placement="bottom"
 				>
 					<button
-						class="flex size-[30px] justify-center items-center rounded-lg hover:bg-gray-50/60 dark:hover:bg-gray-800/40 transition {isWindows
+						class="flex size-[30px] justify-center items-center rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900 transition {isWindows
 							? 'cursor-pointer'
 							: 'cursor-[w-resize]'}"
 						on:click={() => {
@@ -1060,7 +1188,7 @@
 					<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
 						<a
 							id="sidebar-new-chat-button"
-							class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition outline-none"
+							class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-900 transition outline-none"
 							href="/"
 							draggable="false"
 							on:click={newChatHandler}
@@ -1081,7 +1209,7 @@
 					<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
 						<button
 							id="sidebar-search-button"
-							class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition outline-none"
+							class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-900 transition outline-none"
 							on:click={() => {
 								showSearch.set(true);
 							}}
@@ -1104,17 +1232,17 @@
 							{@const meta = getMenuItemMeta(itemId)}
 							{#if meta && isMenuItemVisible(itemId)}
 								<div
-									class="px-1 flex justify-center {itemId === activeMenuItemId
-										? 'text-gray-900 dark:text-gray-100'
-										: 'text-gray-700 dark:text-gray-300'}"
+									class="px-1 flex justify-center text-gray-700 dark:text-gray-300"
 									data-id={itemId}
 								>
 									<a
 										id="sidebar-{itemId}-button"
 										class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition {itemId ===
 										activeMenuItemId
-											? 'bg-gray-100/80 dark:bg-gray-850/50'
-											: 'hover:bg-gray-50/40 dark:hover:bg-gray-800/40'}"
+											? ($settings?.highContrastMode ?? false)
+												? 'bg-black/[0.035] dark:bg-white/[0.06]'
+												: 'bg-black/[0.035] dark:bg-white/[0.045]'
+											: 'hover:bg-gray-50 dark:hover:bg-gray-900'}"
 										href={meta.href}
 										on:click={itemClickHandler}
 										draggable="false"
@@ -1244,6 +1372,7 @@
 							bind:folderRegistry
 							{folders}
 							{shiftKey}
+							onFolderUnreadCounts={applyFolderUnreadCounts}
 							onDelete={(folderId) => {
 								selectedFolder.set(null);
 								initChatList();
@@ -1334,6 +1463,33 @@
 						}
 					}}
 				>
+					<svelte:fragment slot="action">
+						<Dropdown bind:show={showChatsMenu} align="end">
+							<Tooltip content={$i18n.t('More')}>
+								<button
+									type="button"
+									class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"
+									aria-label={$i18n.t('More')}
+									on:pointerup|stopPropagation
+								>
+									<MoreHorizontalIcon className="size-3.5" strokeWidth="2" />
+								</button>
+							</Tooltip>
+
+							<div slot="content">
+								<DropdownMenu className="min-w-[170px]">
+									<button
+										class="flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[13px] select-none cursor-pointer hover:bg-gray-50/40 dark:hover:bg-gray-800/40"
+										on:click={markAllChatsReadHandler}
+									>
+										<CheckIcon className="size-3.5" />
+										<div class="flex items-center">{$i18n.t('Mark all as read')}</div>
+									</button>
+								</DropdownMenu>
+							</div>
+						</Dropdown>
+					</svelte:fragment>
+
 					{#if $pinnedChats.length > 0}
 						<div class="mb-1">
 							<div class="flex flex-col space-y-1 rounded-xl">
@@ -1414,6 +1570,7 @@
 												on:change={async () => {
 													initChatList();
 												}}
+												onReadStateChange={applyChatReadState}
 												on:tag={(e) => {
 													const { type, name } = e.detail;
 													tagEventHandler(type, name, chat.id);
@@ -1478,6 +1635,7 @@
 										on:change={async () => {
 											initChatList();
 										}}
+										onReadStateChange={applyChatReadState}
 										on:tag={(e) => {
 											const { type, name } = e.detail;
 											tagEventHandler(type, name, chat.id);
@@ -1527,7 +1685,7 @@
 						>
 							<button
 								type="button"
-								class=" flex items-center rounded-xl py-1.5 px-1.5 w-full hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition"
+								class=" flex items-center rounded-xl py-1.5 px-1.5 w-full hover:bg-gray-50 dark:hover:bg-gray-900 transition"
 								aria-label={$i18n.t('User menu')}
 							>
 								<div class=" self-center mr-3 relative flex-shrink-0">

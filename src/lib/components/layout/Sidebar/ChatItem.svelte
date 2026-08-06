@@ -3,12 +3,22 @@
 	const invisibleDragImage = new Image();
 	invisibleDragImage.src =
 		'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+	/**
+	 * At most one chat hover preview may be open across all ChatItem instances.
+	 * bits-ui's safe-polygon close only re-evaluates on pointermove, so a
+	 * preview can be left open when the pointer stops on a neighboring row
+	 * while still inside the previous row's grace area; opening a preview
+	 * therefore force-closes whichever one is still up.
+	 */
+	let closeActiveHoverPreview: (() => void) | null = null;
 </script>
 
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
 	import { goto, invalidate, invalidateAll } from '$app/navigation';
 	import { onMount, getContext, createEventDispatcher, tick } from 'svelte';
+	import { LinkPreview } from 'bits-ui';
 	import {
 		archiveChatById,
 		cloneChatById,
@@ -16,6 +26,7 @@
 		getAllTags,
 		getChatById,
 		getChatListByTagName,
+		markChatUnreadById,
 		updateChatById,
 		updateChatFolderIdById
 	} from '$lib/apis/chats';
@@ -37,6 +48,7 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import DragGhost from '$lib/components/common/DragGhost.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import ChatHoverPreview from './ChatHoverPreview.svelte';
 	import ChatIcon from './icons/Chat.svelte';
 	import MoreHorizontalIcon from './icons/MoreHorizontal.svelte';
 	import SparklesIcon from './icons/Sparkles.svelte';
@@ -65,6 +77,7 @@
 
 	export let ownerName: string | null = null;
 	export let ownerUserId: string | null = null;
+	export let onReadStateChange: (data: Record<string, unknown>) => void = () => {};
 
 	export let onDragEnd = () => {};
 
@@ -90,6 +103,18 @@
 	let chat = null;
 
 	let mouseOver = false;
+	let openPreview = false;
+
+	const closeHoverPreview = () => {
+		if (openPreview) {
+			openPreview = false;
+		}
+	};
+
+	$: if (openPreview && closeActiveHoverPreview !== closeHoverPreview) {
+		closeActiveHoverPreview?.();
+		closeActiveHoverPreview = closeHoverPreview;
+	}
 
 	// Local state: tracks the last updatedAt seen while the user was viewing
 	// this chat.  Survives prop refreshes from sidebar data re-fetches that
@@ -114,6 +139,18 @@
 			chat = await getChatById(localStorage.token, id);
 			draggable = true;
 		}
+	};
+
+	const markUnreadHandler = async () => {
+		const res = await markChatUnreadById(localStorage.token, id).catch((error) => {
+			toast.error(`${error}`);
+			return null;
+		});
+		if (!res) return;
+
+		viewedAt = null;
+		lastReadAt = res.last_read_at ?? 0;
+		onReadStateChange(res);
 	};
 
 	let showShareChatModal = false;
@@ -247,6 +284,7 @@
 
 	const onDragStart = (event) => {
 		event.stopPropagation();
+		openPreview = false;
 
 		event.dataTransfer.setDragImage(invisibleDragImage, 0, 0);
 
@@ -307,6 +345,10 @@
 			el.removeEventListener('dragstart', onDragStart);
 			el.removeEventListener('drag', onDrag);
 			el.removeEventListener('dragend', onDragEndHandler);
+
+			if (closeActiveHoverPreview === closeHoverPreview) {
+				closeActiveHoverPreview = null;
+			}
 		};
 	});
 
@@ -329,6 +371,7 @@
 	const renameHandler = async () => {
 		chatTitle = title;
 		confirmEdit = true;
+		openPreview = false;
 
 		await tick();
 
@@ -444,11 +487,18 @@
 	</DragGhost>
 {/if}
 
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	id="sidebar-chat-group"
 	bind:this={itemElement}
 	class=" w-full {className} relative group"
 	draggable={!confirmEdit && !readonly}
+	on:mouseenter={() => {
+		mouseOver = true;
+	}}
+	on:mouseleave={() => {
+		mouseOver = false;
+	}}
 >
 	{#if confirmEdit}
 		<div
@@ -490,93 +540,102 @@
 			/>
 		</div>
 	{:else}
-		<a
-			id="sidebar-chat-item"
-			class=" w-full flex justify-between rounded-xl px-2 py-[6px] {id === $chatId || confirmEdit
-				? ($settings?.highContrastMode ?? false)
-					? 'bg-black/[0.035] dark:bg-white/[0.06] selected'
-					: 'bg-black/[0.035] dark:bg-white/[0.045] selected'
-				: selected
-					? ($settings?.highContrastMode ?? false)
-						? 'bg-black/[0.035] dark:bg-white/[0.055] selected'
-						: 'bg-black/[0.035] dark:bg-white/[0.045] selected'
-					: ' hover:bg-gray-50 dark:hover:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-900'}  whitespace-nowrap text-ellipsis transition"
-			href="/c/{id}"
-			on:click={() => {
-				dispatch('select');
-
-				if ($selectedFolder) {
-					selectedFolder.set(null);
-				}
-
-				if ($mobile) {
-					showSidebar.set(false);
-				}
-
-				// Optimistically mark as read in UI when clicked
-				unread = false;
-				lastReadAt = Date.now() / 1000;
-			}}
-			on:dblclick={async (e) => {
-				if (readonly) return;
-				e.preventDefault();
-				e.stopPropagation();
-
-				doubleClicked = true;
-				renameHandler();
-			}}
-			on:mouseenter={(e) => {
-				mouseOver = true;
-			}}
-			on:mouseleave={(e) => {
-				mouseOver = false;
-			}}
-			on:focus={(e) => {}}
-			draggable="false"
+		<LinkPreview.Root
+			openDelay={300}
+			closeDelay={0}
+			disabled={$mobile || confirmEdit || dragged}
+			bind:open={openPreview}
 		>
-			{#if ownerUserId}
-				<Tooltip content={ownerName || 'Unknown'}>
-					<img
-						src="/api/v1/users/{ownerUserId}/profile/image"
-						alt=""
-						class="size-3.5 rounded-full shrink-0 object-cover mr-1.5"
-					/>
-				</Tooltip>
-			{/if}
+			<LinkPreview.Trigger
+				id="sidebar-chat-item"
+				class=" w-full flex justify-between rounded-xl px-2 py-[6px] {id === $chatId || confirmEdit
+					? ($settings?.highContrastMode ?? false)
+						? 'bg-black/[0.035] dark:bg-white/[0.06] selected'
+						: 'bg-black/[0.035] dark:bg-white/[0.045] selected'
+					: selected
+						? ($settings?.highContrastMode ?? false)
+							? 'bg-black/[0.035] dark:bg-white/[0.055] selected'
+							: 'bg-black/[0.035] dark:bg-white/[0.045] selected'
+						: ' hover:bg-gray-50 dark:hover:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-900'}  whitespace-nowrap text-ellipsis transition"
+				href="/c/{id}"
+				aria-current={id === $chatId ? 'page' : undefined}
+				onclick={() => {
+					openPreview = false;
+					dispatch('select');
 
-			<!-- Loading spinner for active chat (left side) -->
-			{#if active}
-				<div class="shrink-0 self-center pr-2">
-					<Spinner className="size-3" />
-				</div>
-			{/if}
+					if ($selectedFolder) {
+						selectedFolder.set(null);
+					}
 
-			<div class="flex self-center flex-1 w-full min-w-0">
-				{#if unread}
-					<div class="shrink-0 self-center pr-2.5 flex transition-opacity duration-300">
-						<div class="size-1.5 bg-sky-500 rounded-full" />
+					if ($mobile) {
+						showSidebar.set(false);
+					}
+
+					// Optimistically mark as read in UI when clicked
+					unread = false;
+					lastReadAt = Date.now() / 1000;
+				}}
+				ondblclick={async (e) => {
+					if (readonly) return;
+					e.preventDefault();
+					e.stopPropagation();
+
+					doubleClicked = true;
+					renameHandler();
+				}}
+				draggable="false"
+			>
+				{#if ownerUserId}
+					<Tooltip content={ownerName || 'Unknown'}>
+						<img
+							src="/api/v1/users/{ownerUserId}/profile/image"
+							alt=""
+							class="size-3.5 rounded-full shrink-0 object-cover mr-1.5"
+						/>
+					</Tooltip>
+				{/if}
+
+				<!-- Loading spinner for active chat (left side) -->
+				{#if active}
+					<div class="shrink-0 self-center pr-2">
+						<Spinner className="size-3" />
 					</div>
 				{/if}
-				<div
-					dir="auto"
-					class="text-left self-center overflow-hidden w-full h-[20px] truncate {unread
-						? 'font-normal text-gray-800 dark:text-gray-200'
-						: ''} {showInlineActions && !readonly ? 'pr-12' : ''}"
-				>
-					{title}
-				</div>
-			</div>
 
-			<!-- Time ago indicator -->
-			{#if (updatedAt ?? createdAt) && !showInlineActions}
-				<div class="shrink-0 self-center text-[10px] text-gray-400 dark:text-gray-500 pl-2">
-					{formatTimeAgo(updatedAt ?? createdAt)}
+				<div class="flex self-center flex-1 w-full min-w-0">
+					{#if unread}
+						<div class="shrink-0 self-center pr-2.5 flex transition-opacity duration-300">
+							<div class="size-1.5 bg-sky-500 rounded-full"></div>
+						</div>
+					{/if}
+					<div
+						dir="auto"
+						class="text-left self-center overflow-hidden w-full h-[20px] truncate {unread
+							? 'font-normal text-gray-800 dark:text-gray-200'
+							: ''} {showInlineActions && !readonly ? 'pr-12' : ''}"
+					>
+						{title}
+					</div>
 				</div>
-			{/if}
-		</a>
+
+				<!-- Time ago indicator -->
+				{#if (updatedAt ?? createdAt) && !showInlineActions}
+					<div class="shrink-0 self-center text-[10px] text-gray-400 dark:text-gray-500 pl-2">
+						{formatTimeAgo((updatedAt ?? createdAt) as number)}
+					</div>
+				{/if}
+			</LinkPreview.Trigger>
+
+			<ChatHoverPreview
+				chatId={id}
+				title={chatTitle || title}
+				{openPreview}
+				side="right"
+				align="center"
+			/>
+		</LinkPreview.Root>
 	{/if}
 
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	{#if !readonly}
 		<div
 			id="sidebar-chat-item-menu"
@@ -585,12 +644,6 @@
 				: 'invisible group-hover:visible'} absolute {className === 'pr-2'
 				? 'right-[8px]'
 				: 'right-1'} inset-y-0 mr-1.5 flex items-center"
-			on:mouseenter={(e) => {
-				mouseOver = true;
-			}}
-			on:mouseleave={(e) => {
-				mouseOver = false;
-			}}
 		>
 			{#if confirmEdit}
 				<div
@@ -655,6 +708,7 @@
 						deleteHandler={() => {
 							showDeleteConfirm = true;
 						}}
+						{markUnreadHandler}
 						onClose={() => {
 							dispatch('unselect');
 						}}
@@ -677,6 +731,7 @@
 						<!-- Shortcut support using "delete-chat-button" id -->
 						<button
 							id="delete-chat-button"
+							aria-label={$i18n.t('Delete')}
 							class="hidden"
 							on:click={() => {
 								showDeleteConfirm = true;

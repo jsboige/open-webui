@@ -39,6 +39,8 @@
 
 	export let isFirstMessage: boolean;
 	export let readOnly: boolean;
+	export let allowDelete = true;
+	export let compactPreview = false;
 	export let editCodeBlock = true;
 	export let topPadding = false;
 
@@ -216,6 +218,7 @@
 										</div>
 										<div class=" absolute -top-1 -right-1">
 											<button
+												aria-label={$i18n.t('Remove file')}
 												class=" bg-white text-black border border-white rounded-full {($settings?.highContrastMode ??
 												false)
 													? ''
@@ -415,7 +418,9 @@
 						>
 							<time
 								datetime={new Date(message.timestamp * 1000).toISOString()}
-								class="invisible group-hover:visible {($settings?.chatBubble ?? true)
+								class="{compactPreview
+									? ''
+									: 'invisible group-hover:visible'} {($settings?.chatBubble ?? true)
 									? 'mr-1'
 									: 'ml-1 shrink-0 whitespace-nowrap'} text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
 							>
@@ -424,10 +429,11 @@
 						</Tooltip>
 					{/if}
 
-					{#if !($settings?.chatBubble ?? true)}
+					{#if !compactPreview && !($settings?.chatBubble ?? true)}
 						{#if siblings.length > 1}
 							<div class="flex self-center" dir="ltr">
 								<button
+									aria-label={$i18n.t('Previous message')}
 									class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition"
 									on:click={() => {
 										showPreviousMessage(message);
@@ -495,6 +501,7 @@
 								{/if}
 
 								<button
+									aria-label={$i18n.t('Next message')}
 									class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition"
 									on:click={() => {
 										showNextMessage(message);
@@ -518,12 +525,13 @@
 							</div>
 						{/if}
 					{/if}
-					{#if !readOnly}
+					{#if !compactPreview && !readOnly}
 						<Tooltip content={$i18n.t('Edit')} placement="bottom">
 							<button
 								class="{($settings?.highContrastMode ?? false)
 									? ''
 									: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition edit-user-message-button"
+								aria-label={$i18n.t('Edit')}
 								on:click={() => {
 									editMessageHandler();
 								}}
@@ -546,12 +554,13 @@
 						</Tooltip>
 					{/if}
 
-					{#if message?.content}
+					{#if !compactPreview && message?.content}
 						<Tooltip content={$i18n.t('Copy')} placement="bottom">
 							<button
 								class="{($settings?.highContrastMode ?? false)
 									? ''
 									: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+								aria-label={$i18n.t('Copy')}
 								on:click={() => {
 									copyToClipboard(message.content);
 								}}
@@ -575,9 +584,10 @@
 					{/if}
 
 					{#if $_user?.role === 'admin' || ($_user?.permissions?.chat?.delete_message ?? false)}
-						{#if !readOnly && (!isFirstMessage || siblings.length > 1)}
+						{#if !compactPreview && !readOnly && allowDelete && (!isFirstMessage || siblings.length > 1)}
 							<Tooltip content={$i18n.t('Delete')} placement="bottom">
 								<button
+									aria-label={$i18n.t('Delete')}
 									class="{($settings?.highContrastMode ?? false)
 										? ''
 										: 'invisible group-hover:visible'} p-1 rounded-sm dark:hover:text-white hover:text-black transition"
@@ -608,10 +618,11 @@
 						{/if}
 					{/if}
 
-					{#if $settings?.chatBubble ?? true}
+					{#if !compactPreview && ($settings?.chatBubble ?? true)}
 						{#if siblings.length > 1}
 							<div class="flex self-center" dir="ltr">
 								<button
+									aria-label={$i18n.t('Previous message')}
 									class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition"
 									on:click={() => {
 										showPreviousMessage(message);
@@ -679,6 +690,7 @@
 								{/if}
 
 								<button
+									aria-label={$i18n.t('Next message')}
 									class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition"
 									on:click={() => {
 										showNextMessage(message);

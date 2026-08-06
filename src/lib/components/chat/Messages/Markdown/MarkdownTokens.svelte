@@ -36,6 +36,7 @@
 
 	export let save = false;
 	export let preview = false;
+	export let compactPreview = false;
 
 	export let paragraphTag = 'p';
 
@@ -96,6 +97,10 @@
 			.replace(/<summary>.*?<\/summary>/gi, '')
 			.trim();
 	};
+
+	$: detailButtonClassName = `w-fit py-0.5 ${
+		compactPreview ? 'text-xs' : 'text-[0.9375rem]'
+	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
 
 	$: displayTokens = getDisplayTokens(tokens);
 	$: singlePlainBlock =
@@ -188,9 +193,7 @@
 					class=" w-full text-sm text-start text-gray-500 dark:text-gray-400 max-w-full rounded-xl"
 					dir="auto"
 				>
-					<thead
-						class="text-xs text-gray-700 uppercase bg-white dark:bg-gray-900 dark:text-gray-400 border-none"
-					>
+					<thead class="text-xs text-gray-700 uppercase dark:text-gray-400 border-none">
 						<tr class="">
 							{#each token.header as header, headerIdx}
 								<th
@@ -215,7 +218,7 @@
 					</thead>
 					<tbody>
 						{#each token.rows as row, rowIdx}
-							<tr class="bg-white dark:bg-gray-900 text-xs">
+							<tr class="text-xs">
 								{#each row ?? [] as cell, cellIdx}
 									<td
 										class="px-3! py-2! text-gray-900 dark:text-white w-max {token.rows.length -
@@ -278,6 +281,8 @@
 					id={`${id}-${tokenIdx}`}
 					tokens={token.tokens}
 					{done}
+					{preview}
+					{compactPreview}
 					{editCodeBlock}
 					{onTaskClick}
 					{sourceIds}
@@ -313,6 +318,8 @@
 							tokens={item.tokens}
 							top={token.loose}
 							{done}
+							{preview}
+							{compactPreview}
 							{editCodeBlock}
 							{onTaskClick}
 							{sourceIds}
@@ -348,6 +355,8 @@
 									tokens={item.tokens}
 									top={token.loose}
 									{done}
+									{preview}
+									{compactPreview}
 									{editCodeBlock}
 									{onTaskClick}
 									{sourceIds}
@@ -360,6 +369,8 @@
 								tokens={item.tokens}
 								top={token.loose}
 								{done}
+								{preview}
+								{compactPreview}
 								{editCodeBlock}
 								{onTaskClick}
 								{sourceIds}
@@ -375,6 +386,7 @@
 			id={`${id}-${tokenIdx}-detail-group`}
 			tokens={token.items}
 			messageDone={done}
+			{compactPreview}
 			{allowEmbeds}
 		>
 			<div slot="content">
@@ -389,7 +401,7 @@
 							grouped={true}
 							open={$settings?.expandDetails ?? false}
 							className="w-full"
-							buttonClassName="w-fit py-0.5 text-[0.9375rem] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition"
+							buttonClassName={detailButtonClassName}
 						/>
 					{:else if textContent.length > 0}
 						<Collapsible
@@ -398,7 +410,7 @@
 							attributes={detailToken?.attributes}
 							messageDone={done}
 							className="w-full"
-							buttonClassName="w-fit py-0.5 text-[0.9375rem] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition"
+							buttonClassName={detailButtonClassName}
 							dir="auto"
 						>
 							<div class="mb-1.5" slot="content">
@@ -407,6 +419,8 @@
 									tokens={marked.lexer(decode(detailToken.text))}
 									attributes={detailToken?.attributes}
 									{done}
+									{preview}
+									{compactPreview}
 									{editCodeBlock}
 									{onTaskClick}
 									{sourceIds}
@@ -422,7 +436,7 @@
 							attributes={detailToken?.attributes}
 							messageDone={done}
 							className="w-full"
-							buttonClassName="w-fit py-0.5 text-[0.9375rem] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition"
+							buttonClassName={detailButtonClassName}
 							dir="auto"
 						/>
 					{/if}
@@ -440,6 +454,7 @@
 				resultContent={getDetailTextContent(token)}
 				open={$settings?.expandDetails ?? false}
 				className="w-full space-y-2"
+				buttonClassName={detailButtonClassName}
 			/>
 		{:else if textContent.length > 0}
 			<Collapsible
@@ -448,6 +463,7 @@
 				attributes={token?.attributes}
 				messageDone={done}
 				className="w-full space-y-2"
+				buttonClassName={detailButtonClassName}
 				dir="auto"
 			>
 				<div class=" mb-1.5" slot="content">
@@ -456,6 +472,8 @@
 						tokens={marked.lexer(decode(token.text))}
 						attributes={token?.attributes}
 						{done}
+						{preview}
+						{compactPreview}
 						{editCodeBlock}
 						{onTaskClick}
 						{sourceIds}
@@ -471,6 +489,7 @@
 				attributes={token?.attributes}
 				messageDone={done}
 				className="w-full space-y-2"
+				buttonClassName={detailButtonClassName}
 				dir="auto"
 			/>
 		{/if}

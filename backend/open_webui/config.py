@@ -853,6 +853,13 @@ ONEDRIVE_SHAREPOINT_TENANT_ID = os.getenv('ONEDRIVE_SHAREPOINT_TENANT_ID', '')
 # RAG Content Extraction
 CONTENT_EXTRACTION_ENGINE = os.getenv('CONTENT_EXTRACTION_ENGINE', '').lower()
 
+content_extraction_supported_media_mime_types = os.getenv('CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES')
+CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES = (
+    [mime_type.strip() for mime_type in content_extraction_supported_media_mime_types.split(',') if mime_type.strip()]
+    if content_extraction_supported_media_mime_types is not None
+    else None
+)
+
 DATALAB_MARKER_API_KEY = os.getenv('DATALAB_MARKER_API_KEY', '')
 
 DATALAB_MARKER_API_BASE_URL = os.getenv('DATALAB_MARKER_API_BASE_URL', '')
@@ -1176,6 +1183,7 @@ WEB_SEARCH_TRUST_ENV = os.getenv('WEB_SEARCH_TRUST_ENV', 'True').lower() == 'tru
 OLLAMA_CLOUD_WEB_SEARCH_API_KEY = os.getenv('OLLAMA_CLOUD_API_KEY', '')
 
 SEARXNG_QUERY_URL = os.getenv('SEARXNG_QUERY_URL', '')
+OPENSERP_BASE_URL = os.getenv('OPENSERP_BASE_URL', 'http://localhost:7000')
 
 SEARXNG_LANGUAGE = os.getenv('SEARXNG_LANGUAGE', 'all')
 
@@ -1664,7 +1672,13 @@ if default_prompt_suggestions == []:
 
 DEFAULT_PROMPT_SUGGESTIONS = default_prompt_suggestions
 
-MODEL_ORDER_LIST = []
+try:
+    model_order_list = json.loads(os.getenv('MODEL_ORDER_LIST', '[]'))
+except Exception as e:
+    log.exception(f'Error loading MODEL_ORDER_LIST: {e}')
+    model_order_list = []
+
+MODEL_ORDER_LIST = model_order_list
 
 try:
     default_model_metadata = json.loads(os.getenv('DEFAULT_MODEL_METADATA', '{}'))
@@ -1843,6 +1857,10 @@ USER_PERMISSIONS_CHAT_ALLOW_PUBLIC_SHARING = (
     os.getenv('USER_PERMISSIONS_CHAT_ALLOW_PUBLIC_SHARING', 'False').lower() == 'true'
 )
 
+USER_PERMISSIONS_CHAT_ALLOW_OPEN_SHARING = (
+    os.getenv('USER_PERMISSIONS_CHAT_ALLOW_OPEN_SHARING', 'False').lower() == 'true'
+)
+
 USER_PERMISSIONS_CHAT_EXPORT = os.getenv('USER_PERMISSIONS_CHAT_EXPORT', 'True').lower() == 'true'
 
 USER_PERMISSIONS_CHAT_IMPORT = os.getenv('USER_PERMISSIONS_CHAT_IMPORT', 'True').lower() == 'true'
@@ -1929,6 +1947,7 @@ DEFAULT_USER_PERMISSIONS = {
         'public_notes': USER_PERMISSIONS_NOTES_ALLOW_PUBLIC_SHARING,
         'folders': USER_PERMISSIONS_FOLDERS_ALLOW_SHARING,
         'public_chats': USER_PERMISSIONS_CHAT_ALLOW_PUBLIC_SHARING,
+        'open_chats': USER_PERMISSIONS_CHAT_ALLOW_OPEN_SHARING,
         'public_calendars': USER_PERMISSIONS_CALENDAR_ALLOW_PUBLIC_SHARING,
     },
     'access_grants': {
@@ -1986,6 +2005,8 @@ ENABLE_FOLDERS = os.getenv('ENABLE_FOLDERS', 'True').lower() == 'true'
 FOLDER_MAX_FILE_COUNT = os.getenv('FOLDER_MAX_FILE_COUNT', '')
 
 ENABLE_CHANNELS = os.getenv('ENABLE_CHANNELS', 'False').lower() == 'true'
+
+CHANNEL_MODEL_RESPONSE_MODE = os.getenv('CHANNEL_MODEL_RESPONSE_MODE', 'thread')
 
 ENABLE_CALENDAR = os.getenv('ENABLE_CALENDAR', 'True').lower() == 'true'
 
@@ -2136,12 +2157,18 @@ TASK_MODEL = os.getenv('TASK_MODEL', '')
 
 TASK_MODEL_EXTERNAL = os.getenv('TASK_MODEL_EXTERNAL', '')
 
+CONTEXT_COMPACTION_MODEL = os.getenv('CONTEXT_COMPACTION_MODEL', '')
+
 ENABLE_CONTEXT_COMPACTION = os.getenv('ENABLE_CONTEXT_COMPACTION', 'False').lower() == 'true'
 
 CONTEXT_COMPACTION_TOKEN_THRESHOLD = int(os.getenv('CONTEXT_COMPACTION_TOKEN_THRESHOLD', '80000'))
 
 _CONTEXT_COMPACTION_TOKEN_CAP = os.getenv('CONTEXT_COMPACTION_TOKEN_CAP')
 CONTEXT_COMPACTION_TOKEN_CAP = int(_CONTEXT_COMPACTION_TOKEN_CAP) if _CONTEXT_COMPACTION_TOKEN_CAP else None
+
+CONTEXT_COMPACTION_RETENTION_PERCENTAGE = min(
+    50, max(10, int(os.getenv('CONTEXT_COMPACTION_RETENTION_PERCENTAGE', '40')))
+)
 
 CONTEXT_COMPACTION_PROMPT_TEMPLATE = os.getenv('CONTEXT_COMPACTION_PROMPT_TEMPLATE', '')
 
@@ -2414,6 +2441,11 @@ if JWT_EXPIRES_IN == '-1':
 # OAuth config
 ####################################
 
+# Master switch for OAuth/OIDC sign-in. Defaults to enabled so existing
+# deployments that already have a provider configured keep working; admins can
+# turn it off to disable OAuth login without clearing their provider settings.
+ENABLE_OAUTH = os.getenv('ENABLE_OAUTH', 'True').lower() == 'true'
+
 ENABLE_OAUTH_SIGNUP = os.getenv('ENABLE_OAUTH_SIGNUP', 'False').lower() == 'true'
 
 OAUTH_AUTO_REDIRECT = os.getenv('OAUTH_AUTO_REDIRECT', 'False').lower() == 'true'
@@ -2567,6 +2599,23 @@ if _oauth_authorize_params:
         log.warning('OAUTH_AUTHORIZE_PARAMS is not valid JSON, ignoring')
 
 
+def oauth_client_kwargs(scope: str, **kwargs):
+    client_kwargs = {
+        'scope': scope,
+        **kwargs,
+        **({'timeout': int(OAUTH_TIMEOUT)} if OAUTH_TIMEOUT else {}),
+    }
+
+    if OAUTH_CODE_CHALLENGE_METHOD == 'S256':
+        client_kwargs['code_challenge_method'] = 'S256'
+    elif OAUTH_CODE_CHALLENGE_METHOD:
+        raise Exception(
+            'Code challenge methods other than "%s" not supported. Given: "%s"' % ('S256', OAUTH_CODE_CHALLENGE_METHOD)
+        )
+
+    return client_kwargs
+
+
 def load_oauth_providers():
     OAUTH_PROVIDERS.clear()
     if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
@@ -2577,10 +2626,7 @@ def load_oauth_providers():
                 client_id=GOOGLE_CLIENT_ID,
                 client_secret=GOOGLE_CLIENT_SECRET,
                 server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-                client_kwargs={
-                    'scope': GOOGLE_OAUTH_SCOPE,
-                    **({'timeout': int(OAUTH_TIMEOUT)} if OAUTH_TIMEOUT else {}),
-                },
+                client_kwargs=oauth_client_kwargs(GOOGLE_OAUTH_SCOPE),
                 redirect_uri=GOOGLE_REDIRECT_URI,
                 **({'authorize_params': GOOGLE_OAUTH_AUTHORIZE_PARAMS} if GOOGLE_OAUTH_AUTHORIZE_PARAMS else {}),
             )
@@ -2598,10 +2644,7 @@ def load_oauth_providers():
                 client_id=MICROSOFT_CLIENT_ID,
                 client_secret=MICROSOFT_CLIENT_SECRET,
                 server_metadata_url=f'{MICROSOFT_CLIENT_LOGIN_BASE_URL}/{MICROSOFT_CLIENT_TENANT_ID}/v2.0/.well-known/openid-configuration?appid={MICROSOFT_CLIENT_ID}',
-                client_kwargs={
-                    'scope': MICROSOFT_OAUTH_SCOPE,
-                    **({'timeout': int(OAUTH_TIMEOUT)} if OAUTH_TIMEOUT else {}),
-                },
+                client_kwargs=oauth_client_kwargs(MICROSOFT_OAUTH_SCOPE),
                 redirect_uri=MICROSOFT_REDIRECT_URI,
             )
             return client
@@ -2622,10 +2665,7 @@ def load_oauth_providers():
                 authorize_url='https://github.com/login/oauth/authorize',
                 api_base_url='https://api.github.com',
                 userinfo_endpoint='https://api.github.com/user',
-                client_kwargs={
-                    'scope': GITHUB_CLIENT_SCOPE,
-                    **({'timeout': int(OAUTH_TIMEOUT)} if OAUTH_TIMEOUT else {}),
-                },
+                client_kwargs=oauth_client_kwargs(GITHUB_CLIENT_SCOPE),
                 redirect_uri=GITHUB_CLIENT_REDIRECT_URI,
             )
             return client
@@ -2638,30 +2678,19 @@ def load_oauth_providers():
     if OAUTH_CLIENT_ID and (OAUTH_CLIENT_SECRET or OAUTH_CODE_CHALLENGE_METHOD) and OPENID_PROVIDER_URL:
 
         def oidc_oauth_register(oauth: OAuth):
-            client_kwargs = {
-                'scope': OAUTH_SCOPES,
-                **(
-                    {'token_endpoint_auth_method': OAUTH_TOKEN_ENDPOINT_AUTH_METHOD}
-                    if OAUTH_TOKEN_ENDPOINT_AUTH_METHOD
-                    else {}
-                ),
-                **({'timeout': int(OAUTH_TIMEOUT)} if OAUTH_TIMEOUT else {}),
-            }
-
-            if OAUTH_CODE_CHALLENGE_METHOD and OAUTH_CODE_CHALLENGE_METHOD == 'S256':
-                client_kwargs['code_challenge_method'] = 'S256'
-            elif OAUTH_CODE_CHALLENGE_METHOD:
-                raise Exception(
-                    'Code challenge methods other than "%s" not supported. Given: "%s"'
-                    % ('S256', OAUTH_CODE_CHALLENGE_METHOD)
-                )
-
             client = oauth.register(
                 name='oidc',
                 client_id=OAUTH_CLIENT_ID,
                 client_secret=OAUTH_CLIENT_SECRET,
                 server_metadata_url=OPENID_PROVIDER_URL,
-                client_kwargs=client_kwargs,
+                client_kwargs=oauth_client_kwargs(
+                    OAUTH_SCOPES,
+                    **(
+                        {'token_endpoint_auth_method': OAUTH_TOKEN_ENDPOINT_AUTH_METHOD}
+                        if OAUTH_TOKEN_ENDPOINT_AUTH_METHOD
+                        else {}
+                    ),
+                ),
                 redirect_uri=OPENID_REDIRECT_URI,
             )
             return client
@@ -2797,6 +2826,7 @@ DEFAULT_CONFIG = {
     'onedrive.sharepoint_url': ONEDRIVE_SHAREPOINT_URL,
     'onedrive.sharepoint_tenant_id': ONEDRIVE_SHAREPOINT_TENANT_ID,
     'rag.content_extraction_engine': CONTENT_EXTRACTION_ENGINE,
+    'rag.content_extraction.supported_media_mime_types': CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES,
     'rag.datalab_marker_api_key': DATALAB_MARKER_API_KEY,
     'rag.datalab_marker_api_base_url': DATALAB_MARKER_API_BASE_URL,
     'rag.datalab_marker_additional_config': DATALAB_MARKER_ADDITIONAL_CONFIG,
@@ -2889,6 +2919,7 @@ DEFAULT_CONFIG = {
     'web.search.trust_env': WEB_SEARCH_TRUST_ENV,
     'web.search.ollama_cloud_api_key': OLLAMA_CLOUD_WEB_SEARCH_API_KEY,
     'web.search.searxng_query_url': SEARXNG_QUERY_URL,
+    'web.search.openserp_base_url': OPENSERP_BASE_URL,
     'web.search.searxng_language': SEARXNG_LANGUAGE,
     'web.search.yacy_query_url': YACY_QUERY_URL,
     'web.search.yacy_username': YACY_USERNAME,
@@ -3028,6 +3059,7 @@ DEFAULT_CONFIG = {
     'folders.enable': ENABLE_FOLDERS,
     'folders.max_file_count': FOLDER_MAX_FILE_COUNT,
     'channels.enable': ENABLE_CHANNELS,
+    'channels.model_response_mode': CHANNEL_MODEL_RESPONSE_MODE,
     'calendar.enable': ENABLE_CALENDAR,
     'automations.enable': ENABLE_AUTOMATIONS,
     'subagents.enable': ENABLE_SUBAGENTS,
@@ -3053,9 +3085,11 @@ DEFAULT_CONFIG = {
     'auth.admin.email': ADMIN_EMAIL,
     'task.model.default': TASK_MODEL,
     'task.model.external': TASK_MODEL_EXTERNAL,
+    'chat.context_compaction.model': CONTEXT_COMPACTION_MODEL,
     'chat.context_compaction.enable': ENABLE_CONTEXT_COMPACTION,
     'chat.context_compaction.token_threshold': CONTEXT_COMPACTION_TOKEN_THRESHOLD,
     'chat.context_compaction.token_cap': CONTEXT_COMPACTION_TOKEN_CAP,
+    'chat.context_compaction.retention_percentage': CONTEXT_COMPACTION_RETENTION_PERCENTAGE,
     'chat.context_compaction.prompt_template': CONTEXT_COMPACTION_PROMPT_TEMPLATE,
     'task.title.prompt_template': TITLE_GENERATION_PROMPT_TEMPLATE,
     'task.tags.prompt_template': TAGS_GENERATION_PROMPT_TEMPLATE,
@@ -3077,6 +3111,7 @@ DEFAULT_CONFIG = {
     'auth.api_key.endpoint_restrictions': ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS,
     'auth.api_key.allowed_endpoints': API_KEYS_ALLOWED_ENDPOINTS,
     'auth.jwt_expiry': JWT_EXPIRES_IN,
+    'oauth.enable': ENABLE_OAUTH,
     'oauth.enable_signup': ENABLE_OAUTH_SIGNUP,
     'oauth.auto_redirect': OAUTH_AUTO_REDIRECT,
     'oauth.refresh_token.include_scope': OAUTH_REFRESH_TOKEN_INCLUDE_SCOPE,
