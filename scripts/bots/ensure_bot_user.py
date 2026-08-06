@@ -25,7 +25,10 @@ from open_webui.utils.auth import get_password_hash
 
 
 async def ensure(email: str, password: str, name: str) -> str:
-    hashed = get_password_hash(password)
+    # get_password_hash is a coroutine upstream (it offloads argon2/bcrypt to a
+    # thread pool), so it must be awaited: passing the coroutine straight to the
+    # UPDATE makes psycopg fail with "cannot adapt type 'coroutine'".
+    hashed = await get_password_hash(password)
     async with get_async_db_context() as db:
         existing = (
             await db.execute(select(User).filter(User.email == email))
