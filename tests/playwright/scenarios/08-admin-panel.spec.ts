@@ -23,10 +23,19 @@ test.describe('08 — Admin Panel', () => {
   test('admin settings page loads', async ({ page }) => {
     await page.goto('/admin/settings');
     // v0.11 moved admin settings into the settings window: they are no longer a
-    // "Réglages" nav link but tabs ("Général", "Connexions", "Base de données",
-    // ...). The page itself never stopped loading — only the role changed.
+    // "Réglages" nav link but tabs. /admin/settings also redirects back to "/"
+    // once the window opens — and on the way it briefly renders a legacy
+    // <a href="/admin/settings">Réglages</a> for ~3 s. Asserting on that link
+    // is a race (measured 2026-08-07: appears t=7.5s, gone t=10.7s), so wait
+    // for the settled state instead.
+    await page
+      .waitForURL((url) => !url.pathname.startsWith('/admin/settings'), { timeout: 30_000 })
+      .catch(() => {});
+    // "Général" exists in BOTH the user and admin tab groups (2 matches →
+    // strict-mode violation). "Authentification" is admin-only, so it also
+    // proves we landed on the admin section and not just any settings tab.
     await expect(
-      page.getByRole('tab', { name: /général|general/i }).first()
+      page.getByRole('tab', { name: /authentification|authentication/i })
     ).toBeVisible({ timeout: 15_000 });
   });
 
