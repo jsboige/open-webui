@@ -130,6 +130,38 @@ def stamps(lines: list[str]) -> list[dt.datetime]:
     return found
 
 
+def safe_tail_budget(name: str, newest: dt.datetime) -> int | None:
+    """Largest ``--tail N`` that still reads past the tear, by bisection.
+
+    Knowing a container is truncated is not enough to scan it: ``--tail N``
+    works only while N stays below the number of records written *after* the
+    tear. One line past that, the backward read runs into the malformed record
+    and collapses to the stale head -- silently, which is the same failure the
+    check exists to catch. Measured on epita: ``--tail 2500`` returned 2500
+    recent lines, ``--tail 3000`` returned 401 lines all predating the tear.
+
+    The predicate is "this read still reaches the newest record", not a line
+    count: a healthy short log legitimately returns fewer lines than asked.
+    Returns None if no cliff exists below ``TAIL_LARGE``.
+    """
+    def reaches_newest(n: int) -> bool:
+        seen = stamps(docker("logs", name, "--tail", str(n), "--timestamps"))
+        return bool(seen) and max(seen) >= newest
+
+    if reaches_newest(TAIL_LARGE):
+        return None
+    lo, hi = 1, TAIL_LARGE  # lo known-good after the loop, hi known-bad
+    if not reaches_newest(lo):
+        return 0
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if reaches_newest(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
 def inspect(name: str, window: dt.timedelta) -> dict:
     cutoff = dt.datetime.now(dt.timezone.utc) - window
     since_arg = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -162,6 +194,12 @@ def inspect(name: str, window: dt.timedelta) -> dict:
     else:
         verdict = "OK"
 
+    budget = (
+        safe_tail_budget(name, last_seen)
+        if verdict == "TRUNCATED" and last_seen is not None
+        else None
+    )
+
     return {
         "name": name,
         "verdict": verdict,
@@ -172,6 +210,7 @@ def inspect(name: str, window: dt.timedelta) -> dict:
         "inversion": inversion,
         "disagreement": disagreement,
         "last_seen": last_seen,
+        "budget": budget,
     }
 
 
@@ -239,10 +278,18 @@ def main() -> int:
                     f"--tail saw {row['backward']}"
                 )
             print(f"  {row['name']}: " + "; ".join(reasons))
+            if row["budget"]:
+                print(
+                    f"      scan it with:  docker logs {row['name']} "
+                    f"--tail {row['budget']}      <- do NOT exceed this"
+                )
         print()
         print(
             "Scan these with `docker logs <name> --tail N`, never `--since`: a\n"
             "`--since` sweep reports them as quiet, and quiet reads as healthy.\n"
+            "Respect the printed budget -- one line past it the backward read\n"
+            "hits the tear too and collapses to the stale head, just as\n"
+            "silently.\n"
             "The tear is permanent until the log file is replaced -- `docker\n"
             "restart` keeps the same file; only `up -d --force-recreate` (or\n"
             "rotation at max-size) starts a new one."
