@@ -45,7 +45,23 @@ help: the container keeps appending to the same file. The file is replaced only
 by recreating the container (``docker compose ... up -d --force-recreate``) or
 by rotation, which needs the file to reach ``max-size`` (10m here -- weeks away
 at ~0.5 MB). Until then, scan that container with ``--tail N``, never
-``--since``.
+``--since``, and keep N at or below the budget this script prints.
+
+Overshooting that budget does not fail loudly. ``--tail N`` seeks back N records
+and then parses *forward*, so once N reaches past the tear the read starts
+before it and stops there. Overshoot by k and you get exactly k-1 lines, all of
+them predating the tear, saturating at the pre-tear total. Measured on epita
+with a budget of 2726 and 401 records before the tear::
+
+    --tail 2726 -> 2726 lines, dated 08-07..08-11   (the whole live window)
+    --tail 2728 ->    1 line,  dated 08-07          (stale)
+    --tail 2800 ->   73 lines, dated 08-07          (stale)
+    --tail 3128 ->  401 lines, dated 08-06..08-07   (stale, saturated)
+
+A near miss is the dangerous case: a handful of lines reads as "quiet
+container", not as a failed read, and every one of them is days old. Use
+``--json`` to feed the budget straight into a scanner rather than copying the
+number by hand -- it drifts upward as the container logs.
 
 Read-only: runs ``docker ps`` / ``docker logs`` only, changes nothing.
 
@@ -55,6 +71,7 @@ Usage
     python scripts/docker-log-health.py --window 24h
     python scripts/docker-log-health.py --match ''          # every container
     python scripts/docker-log-health.py --container epita-open-webui-open-webui-1
+    python scripts/docker-log-health.py --json           # for a scanner to consume
 
 Exit status is 1 if any container's forward reads are truncated, so the script
 can gate a monitoring run.
@@ -63,6 +80,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import re
 import subprocess
 import sys
@@ -135,10 +153,12 @@ def safe_tail_budget(name: str, newest: dt.datetime) -> int | None:
 
     Knowing a container is truncated is not enough to scan it: ``--tail N``
     works only while N stays below the number of records written *after* the
-    tear. One line past that, the backward read runs into the malformed record
-    and collapses to the stale head -- silently, which is the same failure the
-    check exists to catch. Measured on epita: ``--tail 2500`` returned 2500
-    recent lines, ``--tail 3000`` returned 401 lines all predating the tear.
+    tear. Past that the read starts before the tear and stops at it, returning
+    k-1 stale lines for an overshoot of k -- silently, which is the same failure
+    the check exists to catch. See the module docstring for the measured curve.
+
+    The ceiling rises as the container keeps logging (epita: 2587 -> 2726 in a
+    day), so it is measured per run and never recorded.
 
     The predicate is "this read still reaches the newest record", not a line
     count: a healthy short log legitimately returns fewer lines than asked.
@@ -237,12 +257,26 @@ def main() -> int:
         dest="containers",
         help="explicit container name; repeatable, overrides --match",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the rows as JSON instead of a table, so a log scanner can "
+        "cap its own `--tail` at each container's budget (null = no cap needed)",
+    )
     args = parser.parse_args()
 
     names = args.containers or list_containers(args.match)
     if not names:
         print("no running container matched", file=sys.stderr)
         return 2
+
+    if args.json:
+        rows = [inspect(name, args.window) for name in names]
+        for row in rows:
+            last = row["last_seen"]
+            row["last_seen"] = last.isoformat() if last else None
+        print(json.dumps(rows, indent=2))
+        return 1 if any(r["verdict"] == "TRUNCATED" for r in rows) else 0
 
     print(
         f"{'container':<42} {'verdict':<10} {'fwd':>6} {'back':>6} "
