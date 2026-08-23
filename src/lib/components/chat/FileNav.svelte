@@ -19,6 +19,7 @@
 	import {
 		getCwd,
 		getTerminalConfig,
+		getFileMatches,
 		listFiles,
 		readFile,
 		downloadFileBlob,
@@ -29,6 +30,8 @@
 		moveEntry,
 		setCwd,
 		type FileEntry,
+		type TerminalContentMatch,
+		type TerminalFileMatch,
 		type TerminalFileRoot,
 		type TerminalCwd
 	} from '$lib/apis/terminal';
@@ -52,7 +55,6 @@
 
 	const i18n: any = getContext('i18n');
 
-	export let onAttach: ((blob: Blob, name: string, contentType: string) => void) | null = null;
 	export let overlay = false;
 	export let chatId: string | null = null;
 
@@ -107,6 +109,12 @@
 		depth: number;
 		rowIndex: number;
 	};
+	type FileSearchTarget = {
+		line: number;
+		column: number;
+		length: number;
+		requestId: number;
+	};
 
 	let sortBy: SortMode = 'name';
 	let sortAsc = true;
@@ -116,15 +124,28 @@
 	let treeCache: Map<string, FileEntry[]> = new Map();
 	let loadingDirs: Set<string> = new Set();
 	let directoryMenu: { x: number; y: number } | null = null;
+	let searchQuery = '';
+	let matchResults: TerminalFileMatch[] | null = null;
+	let matchLoading = false;
+	let matchLoadingMore = false;
+	let matchError: string | null = null;
+	let matchLoadMoreError = false;
+	let nextMatchOffset: number | null = null;
+	let matchTimer: ReturnType<typeof setTimeout> | null = null;
+	let matchController: AbortController | null = null;
+	let matchRequestId = 0;
+	let searchTargetRequestId = 0;
+
+	$: searchText = searchQuery.trim();
+	$: isSearching = Boolean(searchText);
+	$: filenameMatches = matchResults?.filter((match) => match.name_match) ?? [];
+	$: contentOnlyMatches = matchResults?.filter((match) => !match.name_match) ?? [];
 
 	/** Normalize Windows backslashes and collapse duplicate separators. */
 	const normalizePath = (path: string) => path.replace(/\\/g, '/').replace(/\/{2,}/g, '/');
 
 	const cleanEntryName = (name: string) =>
-		normalizePath(name)
-			.split('/')
-			.filter(Boolean)
-			.at(-1) ?? name.replace(/\/+$/, '');
+		normalizePath(name).split('/').filter(Boolean).at(-1) ?? name.replace(/\/+$/, '');
 
 	const normalizeEntries = (items: FileEntry[]) =>
 		items.map((entry) => ({ ...entry, name: cleanEntryName(entry.name) }));
@@ -280,6 +301,7 @@
 	let fileDocxData: ArrayBuffer | null = null;
 	let fileLoading = false;
 	let filePreviewRef: FilePreview;
+	let fileSearchTarget: FileSearchTarget | null = null;
 
 	// ── Office preview state ────────────────────────────────────────────
 	let fileOfficeHtml: string | null = null;
@@ -451,6 +473,132 @@
 		directoryMenu = null;
 	};
 
+	const parentDirectoryPath = (path: string) => {
+		const normalized = normalizePath(path);
+		const slash = normalized.lastIndexOf('/');
+		return slash > 0 ? asDirectoryPath(normalized.slice(0, slash)) : '/';
+	};
+
+	const relativeParentPath = (path: string) => {
+		const slash = path.lastIndexOf('/');
+		return slash === -1 ? '' : path.slice(0, slash);
+	};
+
+	const clearMatchRequest = () => {
+		if (matchTimer) {
+			clearTimeout(matchTimer);
+			matchTimer = null;
+		}
+		matchController?.abort();
+		matchController = null;
+	};
+
+	const resetMatches = () => {
+		matchResults = null;
+		matchLoading = false;
+		matchLoadingMore = false;
+		matchError = null;
+		matchLoadMoreError = false;
+		nextMatchOffset = null;
+	};
+
+	const queueFileSearch = (
+		query: string,
+		terminal: { url: string; key: string } | null,
+		path: string,
+		hiddenVisible: boolean,
+		activeFile: string | null,
+		activePort: number | null
+	) => {
+		clearMatchRequest();
+		matchRequestId += 1;
+		const requestId = matchRequestId;
+		if (!query || !terminal || activeFile || activePort !== null) {
+			resetMatches();
+			return;
+		}
+
+		clearSelection();
+		closeDirectoryMenu();
+		creatingFolder = false;
+		creatingFile = false;
+		matchLoading = true;
+		matchLoadingMore = false;
+		matchError = null;
+		matchLoadMoreError = false;
+		nextMatchOffset = null;
+		matchResults = null;
+		const controller = new AbortController();
+		matchController = controller;
+		matchTimer = setTimeout(async () => {
+			const data = await getFileMatches(
+				terminal.url,
+				terminal.key,
+				query,
+				path,
+				hiddenVisible,
+				0,
+				chatId ?? undefined,
+				controller.signal
+			);
+			if (requestId !== matchRequestId) return;
+			if (data) {
+				matchResults = data.results;
+				nextMatchOffset = data.next_offset;
+			} else if (!controller.signal.aborted) {
+				matchError = $i18n.t('Failed to search files');
+				matchResults = [];
+			}
+			matchLoading = false;
+		}, 200);
+	};
+
+	$: queueFileSearch(searchText, selectedTerminal, currentPath, showHidden, selectedFile, previewPort);
+
+	const loadMoreMatches = async () => {
+		const offset = nextMatchOffset;
+		if (offset === null || !isSearching || matchLoading || matchLoadingMore || matchLoadMoreError) {
+			return;
+		}
+		const terminal = selectedTerminal;
+		if (!terminal) return;
+
+		const requestId = matchRequestId;
+		matchLoadingMore = true;
+		const controller = new AbortController();
+		matchController = controller;
+		const data = await getFileMatches(
+			terminal.url,
+			terminal.key,
+			searchText,
+			currentPath,
+			showHidden,
+			offset,
+			chatId ?? undefined,
+			controller.signal
+		);
+		if (requestId === matchRequestId) {
+			if (data) {
+				matchResults = [...(matchResults ?? []), ...data.results];
+				nextMatchOffset = data.next_offset;
+			} else if (!controller.signal.aborted) {
+				matchLoadMoreError = true;
+			}
+			matchLoadingMore = false;
+		}
+	};
+
+	const loadMoreOnVisible = (node: HTMLElement) => {
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				if (entry.isIntersecting) void loadMoreMatches();
+			},
+			{ rootMargin: '160px' }
+		);
+		observer.observe(node);
+		return { destroy: () => observer.disconnect() };
+	};
+
 	const labelFromPath = (path: string) => {
 		const parts = normalizePath(path).split('/').filter(Boolean);
 		return parts.at(-1) ?? '/';
@@ -498,11 +646,7 @@
 		}
 
 		const pathForHome = hintPath && hintPath !== '/' ? hintPath : cwdPath;
-		if (
-			homePath &&
-			pathForHome &&
-			(pathForHome === homePath || pathForHome.startsWith(homePath))
-		) {
+		if (homePath && pathForHome && (pathForHome === homePath || pathForHome.startsWith(homePath))) {
 			return { path: homePath, label: 'Home' };
 		}
 
@@ -535,17 +679,18 @@
 		const isDrive = /^[A-Za-z]:$/.test(parts[0] ?? '');
 		const root = isDrive ? { label: parts[0], path: `${parts[0]}/` } : { label: '/', path: '/' };
 		return (isDrive ? parts.slice(1) : parts).reduce(
-				(acc, part) => {
-					const prev = acc[acc.length - 1];
-					acc.push({ label: part, path: asDirectoryPath(joinPath(prev.path, part)) });
-					return acc;
-				},
+			(acc, part) => {
+				const prev = acc[acc.length - 1];
+				acc.push({ label: part, path: asDirectoryPath(joinPath(prev.path, part)) });
+				return acc;
+			},
 			[root]
 		);
 	};
 
 	// ── File preview management ──────────────────────────────────────────
 	const clearFilePreview = () => {
+		fileSearchTarget = null;
 		fileContent = null;
 		if (fileImageUrl) {
 			URL.revokeObjectURL(fileImageUrl);
@@ -571,7 +716,10 @@
 	};
 
 	// ── Directory operations ─────────────────────────────────────────────
-	const loadDir = async (path: string, options: { preserveTree?: boolean; restoreTree?: boolean } = {}) => {
+	const loadDir = async (
+		path: string,
+		options: { preserveTree?: boolean; restoreTree?: boolean } = {}
+	) => {
 		const terminal = selectedTerminal;
 		if (!terminal) return;
 		const directory = clampToFileRoot(path);
@@ -663,7 +811,8 @@
 	};
 
 	const openEntry = async (entry: FileEntry) => {
-		const fullPath = 'fullPath' in entry ? (entry as BrowserRow).fullPath : entryPath(currentPath, entry);
+		const fullPath =
+			'fullPath' in entry ? (entry as BrowserRow).fullPath : entryPath(currentPath, entry);
 		const parentPath = 'parentPath' in entry ? (entry as BrowserRow).parentPath : currentPath;
 		if (entry.type === 'directory') {
 			await loadDir(fullPath);
@@ -766,6 +915,33 @@
 		fileLoading = false;
 	};
 
+	const openFileMatch = async (match: TerminalFileMatch) => {
+		if (match.type === 'directory') {
+			searchQuery = '';
+			await loadDir(match.path);
+			return;
+		}
+		await openEntry({
+			name: match.name,
+			type: 'file',
+			size: 0,
+			fullPath: match.path,
+			parentPath: parentDirectoryPath(match.path),
+			depth: 0,
+			rowIndex: -1
+		} as BrowserRow);
+	};
+
+	const openContentMatch = async (match: TerminalFileMatch, contentMatch: TerminalContentMatch) => {
+		await openFileMatch(match);
+		fileSearchTarget = {
+			line: contentMatch.line,
+			column: contentMatch.column,
+			length: searchText.length,
+			requestId: ++searchTargetRequestId
+		};
+	};
+
 	let downloading = false;
 
 	const downloadFile = async (path: string) => {
@@ -819,8 +995,8 @@
 		if (rawMove) {
 			try {
 				const data = JSON.parse(rawMove);
-				const paths = data.paths || (data.path ? [data.path] : []);
-				for (const path of paths) await handleMove(path, currentPath);
+				const paths = (data.paths || (data.path ? [data.path] : [])) as string[];
+				await handleMovePaths(paths, currentPath);
 			} catch {}
 			return;
 		}
@@ -834,7 +1010,7 @@
 		}
 		uploading = false;
 		invalidateTreeCache(currentPath);
-			await loadDir(currentPath, { preserveTree: true });
+		await loadDir(currentPath, { preserveTree: true });
 	};
 
 	const handleUploadFiles = async (files: File[]) => {
@@ -926,19 +1102,25 @@
 	};
 
 	// ── Move (drag-and-drop) ────────────────────────────────────────────
-	const handleMove = async (source: string, destFolder: string) => {
+	const sourceParentPath = (source: string) => {
+		const cleanSource = normalizePath(source).replace(/\/$/, '');
+		const index = cleanSource.lastIndexOf('/');
+		return asDirectoryPath(index >= 0 ? cleanSource.slice(0, index + 1) : currentPath);
+	};
+
+	const moveOne = async (source: string, destFolder: string) => {
 		const terminal = selectedTerminal;
-		if (!terminal || !currentWritable) return;
+		if (!terminal || !currentWritable) return false;
 
-		const cleanSource = source.replace(/\/$/, '');
+		const cleanSource = normalizePath(source).replace(/\/$/, '');
 		const fileName = cleanSource.split('/').pop() ?? '';
-		const destination = `${asDirectoryPath(destFolder)}${fileName}`;
+		const destination = joinPath(destFolder, fileName);
 
-		if (!fileName || cleanSource === destination) return;
+		if (!fileName || cleanSource === destination) return false;
 
 		// Prevent moving a folder into itself or its own subtree
 		const sourceDir = asDirectoryPath(cleanSource);
-		if (asDirectoryPath(destFolder).startsWith(sourceDir)) return;
+		if (asDirectoryPath(destFolder).startsWith(sourceDir)) return false;
 
 		const result = await moveEntry(
 			terminal.url,
@@ -949,11 +1131,27 @@
 		);
 		if ('error' in result) {
 			toast.error(result.error);
+			return false;
 		} else {
 			toast.success($i18n.t('Moved {{name}}', { name: fileName }));
+			return true;
 		}
-		invalidateTreeCache(currentPath, destFolder, cleanSource.substring(0, cleanSource.lastIndexOf('/') + 1));
-		await loadDir(currentPath, { preserveTree: true });
+	};
+
+	const refreshAfterMove = async (sources: string[], destFolder: string) => {
+		invalidateTreeCache(currentPath, destFolder, ...sources, ...sources.map(sourceParentPath));
+		clearSelection();
+		await refreshBrowser();
+	};
+
+	const handleMovePaths = async (sources: string[], destFolder: string) => {
+		const movedSources: string[] = [];
+		for (const source of sources) {
+			if (await moveOne(source, destFolder)) movedSources.push(source);
+		}
+		if (movedSources.length > 0) {
+			await refreshAfterMove(movedSources, destFolder);
+		}
 	};
 
 	// ── Rename ──────────────────────────────────────────────────────────
@@ -1157,6 +1355,7 @@
 
 			const lastSlash = filePath.lastIndexOf('/');
 			const dir = lastSlash > 0 ? filePath.substring(0, lastSlash + 1) : '/';
+			invalidateTreeCache(dir);
 
 			if (selectedFile) {
 				if (selectedFile === filePath || currentPath.startsWith(dir)) {
@@ -1165,7 +1364,7 @@
 				}
 			} else {
 				if (currentPath.startsWith(dir) || dir.startsWith(currentPath)) {
-					await loadDir(currentPath, { preserveTree: true });
+					await refreshBrowser();
 				}
 			}
 		});
@@ -1228,6 +1427,7 @@
 	});
 
 	onDestroy(() => {
+		clearMatchRequest();
 		if (fileImageUrl) URL.revokeObjectURL(fileImageUrl);
 		if (fileVideoUrl) URL.revokeObjectURL(fileVideoUrl);
 		if (fileAudioUrl) URL.revokeObjectURL(fileAudioUrl);
@@ -1283,13 +1483,13 @@
 	<div
 		bind:this={containerEl}
 		class="flex flex-col h-full min-h-0 min-w-0 relative"
-		on:dragover={handleDragOver}
+		on:dragover={(e) => !isSearching && handleDragOver(e)}
 		on:dragleave={() => (isDragOver = false)}
-		on:drop={handleDrop}
+		on:drop={(e) => !isSearching && handleDrop(e)}
 		role="region"
 		aria-label={$i18n.t('File browser')}
 	>
-		{#if isDragOver}
+		{#if isDragOver && !isSearching}
 			<div
 				class="absolute inset-1 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-400 bg-blue-500/10 dark:border-blue-500 pointer-events-none"
 			>
@@ -1325,7 +1525,7 @@
 				onNewFile={startNewFile}
 				onUploadFiles={handleUploadFiles}
 				onDownloadDir={() => downloadFile(currentPath)}
-				onMove={handleMove}
+				onMove={handleMovePaths}
 				onSort={toggleSort}
 				onToggleHidden={toggleHidden}
 			>
@@ -1460,8 +1660,31 @@
 				</Tooltip>
 			</FileNavToolbar>
 
+			{#if !selectedFile}
+				<div
+					class="flex h-8 shrink-0 items-center gap-1.5 border-b border-gray-50 px-3 dark:border-gray-850/30"
+				>
+					<Icon name="search" size={13} strokeWidth={1.5} class="shrink-0 text-gray-400" />
+					<input
+						type="text"
+						class="min-w-0 flex-1 border-none bg-transparent text-xs text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-200 dark:placeholder:text-gray-600"
+						placeholder={$i18n.t('Search files and contents')}
+						bind:value={searchQuery}
+					/>
+					{#if searchQuery}
+						<button
+							class="flex shrink-0 items-center text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-300"
+							on:click={() => (searchQuery = '')}
+							aria-label={$i18n.t('Clear search')}
+						>
+							<Icon name="xmark" size={11} strokeWidth={1.5} />
+						</button>
+					{/if}
+				</div>
+			{/if}
+
 			<!-- Bulk action bar -->
-			{#if selectedCount > 0}
+			{#if selectedCount > 0 && !isSearching}
 				<BulkActionBar
 					count={selectedCount}
 					canDelete={selectedEntriesWritable}
@@ -1484,7 +1707,7 @@
 				if (e.target === e.currentTarget && selectedCount > 0) clearSelection();
 			}}
 			on:contextmenu={(e) => {
-				if (selectedFile || previewPort !== null) return;
+				if (selectedFile || previewPort !== null || isSearching) return;
 				if ((e.target as HTMLElement)?.closest('[data-file-row]')) return;
 				e.preventDefault();
 				directoryMenu = { x: e.clientX, y: e.clientY };
@@ -1520,6 +1743,7 @@
 					{fileOfficeSlides}
 					{excelSheetNames}
 					{selectedExcelSheet}
+					searchTarget={fileSearchTarget}
 					onSheetChange={async (sheet) => {
 						if (!excelWorkbook) return;
 						selectedExcelSheet = sheet;
@@ -1545,7 +1769,125 @@
 					}}
 				/>
 			{:else}
-				{#if uploading}
+				{#if isSearching}
+					{#if matchLoading}
+						<div class="flex justify-center pt-8"><Spinner className="size-4" /></div>
+					{:else if matchError}
+						<div class="flex items-center justify-center py-12">
+							<div class="text-xs text-gray-400 dark:text-gray-500">{matchError}</div>
+						</div>
+					{:else if !matchResults?.length}
+						<div class="flex items-center justify-center py-12">
+							<div class="text-xs text-gray-400 dark:text-gray-500">{$i18n.t('No matches')}</div>
+						</div>
+					{:else}
+						{#if filenameMatches.length > 0}
+							<div
+								class="px-2 pt-1 pb-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-600"
+							>
+								{$i18n.t('Filename matches')}
+							</div>
+							{#each filenameMatches as match (match.path)}
+								<button
+									class="flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left transition-colors duration-75 hover:bg-gray-50 dark:hover:bg-white/4"
+									on:click={() => openFileMatch(match)}
+								>
+									<FileTypeIcon name={match.name} type={match.type} />
+									<span class="min-w-0 flex-1 truncate text-xs text-gray-800 dark:text-gray-200">
+										{match.name}
+										{#if relativeParentPath(match.relative_path)}
+											<span class="ml-1.5 text-[0.6875rem] text-gray-400 dark:text-gray-600">
+												{relativeParentPath(match.relative_path)}
+											</span>
+										{/if}
+									</span>
+								</button>
+								{#if match.content_matches.length > 0}
+									{@const preview = match.content_matches[0]}
+									<button
+										class="flex h-6 w-full items-center gap-2 rounded-lg pl-8 pr-2 text-left transition-colors duration-75 hover:bg-gray-50 dark:hover:bg-white/4"
+										on:click={() => openContentMatch(match, preview)}
+									>
+										<span
+											class="w-6 shrink-0 text-right font-mono text-[0.625rem] text-gray-400 dark:text-gray-600"
+											>{preview.line}</span
+										>
+										<span
+											class="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-gray-500 dark:text-gray-500"
+											>{preview.text}</span
+										>
+										{#if match.content_matches.length > 1}
+											<span class="shrink-0 text-[0.625rem] text-gray-400 dark:text-gray-600">
+												+{match.content_matches.length - 1}
+											</span>
+										{/if}
+									</button>
+								{/if}
+							{/each}
+						{/if}
+
+						{#if contentOnlyMatches.length > 0}
+							<div
+								class="px-2 pt-2 pb-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-600"
+							>
+								{$i18n.t('Content matches')}
+							</div>
+							{#each contentOnlyMatches as match (match.path)}
+								<button
+									class="flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left transition-colors duration-75 hover:bg-gray-50 dark:hover:bg-white/4"
+									on:click={() => openFileMatch(match)}
+								>
+									<FileTypeIcon name={match.name} type={match.type} />
+									<span class="min-w-0 flex-1 truncate text-xs text-gray-800 dark:text-gray-200">
+										{match.name}
+										{#if relativeParentPath(match.relative_path)}
+											<span class="ml-1.5 text-[0.6875rem] text-gray-400 dark:text-gray-600">
+												{relativeParentPath(match.relative_path)}
+											</span>
+										{/if}
+									</span>
+								</button>
+								{#if match.content_matches.length > 0}
+									{@const preview = match.content_matches[0]}
+									<button
+										class="flex h-6 w-full items-center gap-2 rounded-lg pl-8 pr-2 text-left transition-colors duration-75 hover:bg-gray-50 dark:hover:bg-white/4"
+										on:click={() => openContentMatch(match, preview)}
+									>
+										<span
+											class="w-6 shrink-0 text-right font-mono text-[0.625rem] text-gray-400 dark:text-gray-600"
+											>{preview.line}</span
+										>
+										<span
+											class="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-gray-500 dark:text-gray-500"
+											>{preview.text}</span
+										>
+										{#if match.content_matches.length > 1}
+											<span class="shrink-0 text-[0.625rem] text-gray-400 dark:text-gray-600">
+												+{match.content_matches.length - 1}
+											</span>
+										{/if}
+									</button>
+								{/if}
+							{/each}
+						{/if}
+
+						{#if nextMatchOffset !== null}
+							<div use:loadMoreOnVisible class="flex h-8 items-center justify-center">
+								{#if matchLoadingMore}
+									<Spinner className="size-3" />
+								{:else if matchLoadMoreError}
+									<button
+										class="text-[0.6875rem] text-gray-400 transition-colors duration-75 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-400"
+										on:click={() => {
+											matchLoadMoreError = false;
+											void loadMoreMatches();
+										}}>{$i18n.t('Retry')}</button
+									>
+								{/if}
+							</div>
+						{/if}
+					{/if}
+				{:else if uploading}
 					<div class="flex items-center justify-center gap-2 p-4 text-xs text-gray-500">
 						<Spinner className="size-4" />
 						{$i18n.t('Uploading...')}
@@ -1562,7 +1904,7 @@
 					</div>
 				{/if}
 
-				{#if !loading && !error && !uploading && !($selectedTerminalId && $terminalServers === null)}
+					{#if !isSearching && !loading && !error && !uploading && !($selectedTerminalId && $terminalServers === null)}
 					{#if creatingFolder}
 						<div class="flex h-7 items-center gap-2 px-2">
 							<FileTypeIcon name={newFolderName} type="directory" />
@@ -1618,10 +1960,17 @@
 									selected={selectedEntries.has(entry.fullPath)}
 									{selectionMode}
 									selectedPaths={selectedEntries}
-									onOpen={(row) => openEntry({ ...row, fullPath: entry.fullPath, parentPath: entry.parentPath, depth: entry.depth, rowIndex: entry.rowIndex })}
+									onOpen={(row) =>
+										openEntry({
+											...row,
+											fullPath: entry.fullPath,
+											parentPath: entry.parentPath,
+											depth: entry.depth,
+											rowIndex: entry.rowIndex
+										})}
 									onDownload={downloadFile}
 									onDelete={requestDelete}
-									onMove={handleMove}
+									onMove={handleMovePaths}
 									onRename={handleRename}
 									onSelect={handleSelect}
 									onLongPress={enterSelectionMode}
@@ -1637,7 +1986,7 @@
 		</div>
 
 		<!-- Port detection -->
-		{#if selectedTerminal && !selectedFile && previewPort === null}
+		{#if selectedTerminal && !selectedFile && previewPort === null && !isSearching}
 			<div class="shrink-0 border-t border-gray-50 dark:border-gray-850/30">
 				<PortList
 					baseUrl={selectedTerminal.url}
