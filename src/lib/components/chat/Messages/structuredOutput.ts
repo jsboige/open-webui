@@ -57,6 +57,11 @@ export type OutputDisplayItem =
 			type: 'detail_group';
 			id: string;
 			tokens: OutputDetailToken[];
+	  }
+	| {
+			type: 'file';
+			id: string;
+			item: Record<string, unknown>;
 	  };
 
 type ResponseStreamEvent = {
@@ -142,6 +147,50 @@ function getToolResultText(item?: OutputItem): string {
 		.join('');
 }
 
+function parseJSONStringValue(value: unknown): unknown {
+	if (typeof value !== 'string') {
+		return value;
+	}
+
+	let parsed: unknown = value.trim();
+	while (typeof parsed === 'string') {
+		try {
+			parsed = JSON.parse(parsed);
+		} catch {
+			break;
+		}
+	}
+	return parsed;
+}
+
+function getInlineFileFromToolOutput(callItem?: OutputItem, resultItem?: OutputItem) {
+	if (!callItem || !resultItem || callItem.name !== 'display_file') {
+		return null;
+	}
+
+	const args = parseJSONStringValue(callItem.arguments) as Record<string, unknown>;
+	if (!args || typeof args !== 'object') {
+		return null;
+	}
+
+	const result = parseJSONStringValue(getToolResultText(resultItem)) as Record<string, unknown>;
+	if (
+		!result ||
+		typeof result !== 'object' ||
+		result.type !== 'file' ||
+		result.source !== 'open_terminal' ||
+		result.exists === false ||
+		!result.path ||
+		!result.terminal_selector
+	) {
+		return null;
+	}
+
+	return result.page === undefined && args.page !== undefined
+		? { ...result, page: args.page }
+		: result;
+}
+
 function buildToolCallToken(item: OutputItem, toolOutputByCallId: Record<string, OutputItem>) {
 	const callId = item.call_id ?? item.id ?? '';
 	const resultItem = toolOutputByCallId[callId];
@@ -165,14 +214,13 @@ function buildToolCallToken(item: OutputItem, toolOutputByCallId: Record<string,
 	}
 
 	return {
-		summary:
-			isPending
-				? 'Tool Approval Needed'
-				: isDone
-					? 'Tool Executed'
-					: isExecuting
-						? 'Executing...'
-						: 'Preparing...',
+		summary: isPending
+			? 'Tool Approval Needed'
+			: isDone
+				? 'Tool Executed'
+				: isExecuting
+					? 'Executing...'
+					: 'Preparing...',
 		text: getToolResultText(resultItem),
 		attributes: {
 			type: 'tool_calls',
@@ -297,10 +345,13 @@ export function buildOutputDisplayItems(output: OutputItem[] = []): OutputDispla
 	const displayItems: OutputDisplayItem[] = [];
 	const currentDetailTokens: OutputDetailToken[] = [];
 	const toolOutputByCallId: Record<string, OutputItem> = {};
+	const toolCallByCallId: Record<string, OutputItem> = {};
 
 	for (const item of output) {
 		if (item?.type === 'function_call_output' && item.call_id) {
 			toolOutputByCallId[item.call_id] = item;
+		} else if (item?.type === 'function_call' && (item.call_id || item.id)) {
+			toolCallByCallId[item.call_id ?? item.id ?? ''] = item;
 		}
 	}
 
@@ -322,19 +373,32 @@ export function buildOutputDisplayItems(output: OutputItem[] = []): OutputDispla
 	};
 
 	output.forEach((item, index) => {
-		if (item?.type === 'function_call_output') {
+		if (!item) {
+			return;
+		}
+
+		if (item.type === 'function_call_output') {
+			const inlineFile = getInlineFileFromToolOutput(toolCallByCallId[item.call_id ?? ''], item);
+			if (inlineFile) {
+				flushDetails();
+				displayItems.push({
+					type: 'file',
+					id: item.id ?? `file-${index}`,
+					item: inlineFile
+				});
+			}
 			return;
 		}
 
 		if (
-			item?.type === 'function_call' &&
+			item.type === 'function_call' &&
 			item.name === 'ask_user' &&
 			(item.status === 'pending' || item.status === 'in_progress')
 		) {
 			return;
 		}
 
-		if (item?.type && GROUPABLE_OUTPUT_TYPES.has(item.type)) {
+		if (item.type && GROUPABLE_OUTPUT_TYPES.has(item.type)) {
 			const token = buildDetailToken(item, index === output.length - 1, toolOutputByCallId);
 			if (token) {
 				currentDetailTokens.push(token);
@@ -342,7 +406,7 @@ export function buildOutputDisplayItems(output: OutputItem[] = []): OutputDispla
 			return;
 		}
 
-		if (item?.type === 'message') {
+		if (item.type === 'message') {
 			const text = getMessageText(item);
 			if (text.trim()) {
 				flushDetails();
@@ -395,11 +459,18 @@ function appendDelta(current: unknown, delta: unknown): unknown {
 	return delta ?? current ?? '';
 }
 
-function ensureItem(output: OutputItem[], outputIndex: number, fallback?: OutputItem): OutputItem {
+function ensureOutputItem(
+	output: OutputItem[],
+	outputIndex: number,
+	fallback?: OutputItem
+): OutputItem {
 	while (output.length <= outputIndex) {
-		output.push(
-			fallback ?? { type: 'message', status: 'in_progress', role: 'assistant', content: [] }
-		);
+		// Only the addressed slot gets the event's item; filler slots must not reuse its id.
+		const item =
+			output.length === outputIndex && fallback
+				? { ...fallback }
+				: { type: 'message', status: 'in_progress', role: 'assistant', content: [] };
+		output.push(item);
 	}
 	output[outputIndex] = { ...output[outputIndex] };
 	return output[outputIndex];
@@ -413,11 +484,31 @@ function ensurePart(parts: OutputContentPart[], index: number, fallback?: Output
 	return parts[index];
 }
 
+function setPart(
+	parts: OutputContentPart[],
+	index: number,
+	part: OutputContentPart,
+	fallback?: OutputContentPart
+): void {
+	// Assigning past the end leaves a hole that later spreads turn into undefined parts.
+	ensurePart(parts, index, fallback);
+	parts[index] = part;
+}
+
 function findOutputItemIndex(output: OutputItem[], item: OutputItem): number {
 	return output.findIndex(
 		(existing) =>
 			(!!item.id && existing?.id === item.id) ||
-			(!!item.call_id && existing?.call_id === item.call_id)
+			(!!item.call_id && existing?.type === item.type && existing?.call_id === item.call_id)
+	);
+}
+
+function responseEventUpdatesOutputItem(eventType: string): boolean {
+	return (
+		eventType === 'response.content_part.added' ||
+		eventType === 'response.reasoning_summary_part.added' ||
+		eventType.endsWith('.delta') ||
+		eventType.endsWith('.done')
 	);
 }
 
@@ -431,7 +522,19 @@ export function applyResponseStreamEvent(
 	}
 
 	if (eventType === 'response.completed') {
-		return event.response?.output ? [...event.response.output] : output;
+		if (!event.response?.output?.length) return output;
+
+		// Completion covers one provider response, not the earlier tool-call rounds.
+		const nextOutput = [...output];
+		for (const item of event.response.output) {
+			const index = findOutputItemIndex(nextOutput, item);
+			if (index >= 0) {
+				nextOutput[index] = item;
+			} else {
+				nextOutput.push(item);
+			}
+		}
+		return nextOutput;
 	}
 
 	const nextOutput = [...output];
@@ -452,7 +555,7 @@ export function applyResponseStreamEvent(
 		} else if (outputIndex < nextOutput.length) {
 			nextOutput.splice(outputIndex, 0, item);
 		} else {
-			nextOutput[outputIndex] = item;
+			nextOutput.push(item);
 		}
 		return nextOutput;
 	}
@@ -463,11 +566,21 @@ export function applyResponseStreamEvent(
 		}
 		const item = { ...event.item };
 		const existingIndex = findOutputItemIndex(nextOutput, item);
-		nextOutput[existingIndex >= 0 ? existingIndex : outputIndex] = item;
+		if (existingIndex >= 0) {
+			nextOutput[existingIndex] = item;
+		} else if (outputIndex < nextOutput.length) {
+			nextOutput[outputIndex] = item;
+		} else {
+			nextOutput.push(item);
+		}
 		return nextOutput;
 	}
 
-	const item = ensureItem(nextOutput, outputIndex, {
+	if (!responseEventUpdatesOutputItem(eventType)) {
+		return output;
+	}
+
+	const item = ensureOutputItem(nextOutput, outputIndex, {
 		id: event.item_id,
 		type: eventType.includes('reasoning')
 			? 'reasoning'
@@ -484,7 +597,7 @@ export function applyResponseStreamEvent(
 			return nextOutput;
 		}
 		item.content = [...(item.content ?? [])];
-		item.content[event.content_index ?? item.content.length] = { ...event.part };
+		setPart(item.content, event.content_index ?? item.content.length, { ...event.part });
 		return nextOutput;
 	}
 
@@ -493,7 +606,8 @@ export function applyResponseStreamEvent(
 			return nextOutput;
 		}
 		item.summary = [...(item.summary ?? [])];
-		item.summary[event.summary_index ?? item.summary.length] = { ...event.part };
+		const summaryIndex = event.summary_index ?? item.summary.length;
+		setPart(item.summary, summaryIndex, { ...event.part }, { type: 'summary_text', text: '' });
 		return nextOutput;
 	}
 
@@ -523,7 +637,8 @@ export function applyResponseStreamEvent(
 		const typeName = eventType.split('.')[1];
 		if (typeName === 'content_part' && event.part) {
 			item.content = [...(item.content ?? [])];
-			item.content[event.content_index ?? Math.max(item.content.length - 1, 0)] = { ...event.part };
+			const contentIndex = event.content_index ?? Math.max(item.content.length - 1, 0);
+			setPart(item.content, contentIndex, { ...event.part });
 		} else if (typeName === 'function_call_arguments' && event.arguments !== undefined) {
 			item.arguments = event.arguments;
 		} else if (
@@ -555,7 +670,7 @@ export function replaceOutputMessageText(
 		}
 
 		const partIndex = item.content.findIndex(
-			(part) => typeof part.text === 'string' && part.text.includes(oldContent)
+			(part) => typeof part?.text === 'string' && part.text.includes(oldContent)
 		);
 		if (partIndex === -1) {
 			return item;

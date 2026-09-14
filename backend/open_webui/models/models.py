@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from copy import deepcopy
-from typing import Any, Optional
+from typing import Any
 
 from open_webui.internal.db import Base, JSONField, get_async_db_context
 from open_webui.models.access_grants import AccessGrantModel, AccessGrants
@@ -13,14 +13,21 @@ from open_webui.utils.misc import json_text_variants
 from open_webui.utils.validate import validate_profile_image_url
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import BigInteger, Boolean, Column, String, Text, cast, delete, func, or_, select, update
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
 
-# Track invalid profile_image_url values we've already warned about so we
-# don't flood the logs on every DB read (the validator fires per-row).
-_warned_profile_urls: set[str] = set()
+
+def normalize_model_tags(tags: Any) -> list[dict[str, str]]:
+    if not isinstance(tags, list):
+        return []
+
+    normalized = []
+    for tag in tags:
+        name = tag.get('name') if isinstance(tag, dict) else tag
+        if isinstance(name, str) and name.strip():
+            normalized.append({'name': name.strip()})
+    return normalized
 
 
 def strip_extracted_content_from_model_knowledge(knowledge: Any) -> Any:
@@ -69,6 +76,7 @@ class ModelMeta(BaseModel):
 
     profile_image_url: str | None = None
     description: str | None = Field(default=None, description='User-facing description of the model.')
+    i18n: dict[str, Any] | None = None
     capabilities: dict | None = None
     knowledge: list[Any] | None = None
 
@@ -82,12 +90,6 @@ class ModelMeta(BaseModel):
         try:
             return validate_profile_image_url(v)
         except ValueError:
-            if v not in _warned_profile_urls:
-                _warned_profile_urls.add(v)
-                log.warning(
-                    'Clearing invalid profile_image_url stored in DB (likely a legacy SVG data-URI): %.80s…',
-                    v,
-                )
             return None
 
     @field_validator('knowledge', mode='before')
@@ -99,15 +101,7 @@ class ModelMeta(BaseModel):
     @classmethod
     def normalize_tags(cls, data):
         if isinstance(data, dict) and 'tags' in data:
-            raw_tags = data['tags']
-            if isinstance(raw_tags, list):
-                normalized = []
-                for tag in raw_tags:
-                    if isinstance(tag, str):
-                        normalized.append({'name': tag})
-                    elif isinstance(tag, dict) and 'name' in tag:
-                        normalized.append(tag)
-                data['tags'] = normalized
+            data['tags'] = normalize_model_tags(data['tags'])
         return data
 
 
@@ -172,12 +166,12 @@ class ModelAccessListResponse(BaseModel):
 class ModelForm(BaseModel):
     model_config = ConfigDict(extra='ignore')
 
-    id: str
+    id: str = Field(pattern=r'^\S+$')
     base_model_id: str | None = None
     name: str
     meta: ModelMeta
     params: ModelParams
-    access_grants: list[dict | None] = None
+    access_grants: list[dict] | None = None
     is_active: bool = True
 
 
@@ -188,7 +182,7 @@ class ModelsTable:
     async def _to_model_model(
         self,
         model: Model,
-        access_grants: list[AccessGrantModel | None] = None,
+        access_grants: list[AccessGrantModel] | None = None,
         db: AsyncSession | None = None,
     ) -> ModelModel:
         if isinstance(model.meta, dict):
@@ -445,11 +439,13 @@ class ModelsTable:
 
             return ModelListResponse(items=models, total=total)
 
-    async def get_model_meta_by_id(self, id: str, db: AsyncSession | None = None) -> tuple[dict, int | None]:
-        """Return (meta, updated_at) for a model, skipping access grant resolution."""
+    async def get_model_meta_by_id(
+        self, id: str, db: AsyncSession | None = None
+    ) -> tuple[dict, str, int | None] | None:
+        """Return (meta, user_id, updated_at) for a model, skipping access grant resolution."""
         try:
             async with get_async_db_context(db) as db:
-                result = await db.execute(select(Model.meta, Model.updated_at).filter_by(id=id))
+                result = await db.execute(select(Model.meta, Model.user_id, Model.updated_at).filter_by(id=id))
                 return result.first()
         except Exception:
             return None

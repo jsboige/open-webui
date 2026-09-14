@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from redis.asyncio import Redis
 
-from open_webui.env import REDIS_KEY_PREFIX
+from open_webui.env import REDIS_KEY_PREFIX, REDIS_RESPONSE_STREAM_TTL
 from open_webui.utils.json_codec import JSONCodec, dumps_bytes
 
 log = logging.getLogger(__name__)
@@ -32,6 +32,9 @@ async def redis_task_command_listener(app):
     while True:
         pubsub = None
         try:
+            # RedisCluster can't route a pubsub subscribe until initialize() fills its slot cache.
+            await redis.initialize()
+
             pubsub = redis.pubsub()
             await pubsub.subscribe(REDIS_PUBSUB_CHANNEL)
             reconnect_interval = REDIS_PUBSUB_RECONNECT_INTERVAL
@@ -137,10 +140,11 @@ async def create_task(redis, coroutine, id=None, task_id=None):
     tasks[task_id] = task
 
     # If an ID is provided, associate the task with that ID
-    if item_tasks.get(id):
-        item_tasks[id].append(task_id)
-    else:
-        item_tasks[id] = [task_id]
+    if id:
+        if item_tasks.get(id):
+            item_tasks[id].append(task_id)
+        else:
+            item_tasks[id] = [task_id]
 
     if redis:
         await redis_save_task(redis, task_id, id)
@@ -163,7 +167,7 @@ async def list_task_ids_by_item_id(redis, id):
     """
     if redis:
         return await redis_list_item_tasks(redis, id)
-    return item_tasks.get(id, [])
+    return list(item_tasks.get(id, []))
 
 
 async def save_response_stream(
@@ -186,6 +190,9 @@ async def save_response_stream(
 
     if redis:
         await redis.hset(REDIS_RESPONSE_STREAMS_KEY, task_id, dumps_bytes(data))
+        if REDIS_RESPONSE_STREAM_TTL > 0:
+            with suppress(Exception):
+                await redis.hexpire(REDIS_RESPONSE_STREAMS_KEY, REDIS_RESPONSE_STREAM_TTL, task_id)
     else:
         response_streams[task_id] = data
 
@@ -268,10 +275,10 @@ async def stop_item_tasks(redis: Redis, item_id: str):
     if not task_ids:
         return {'status': True, 'message': f'No tasks found for item {item_id}.'}
 
-    for task_id in task_ids:
-        result = await stop_task(redis, task_id)
-        if not result['status']:
-            return result  # Return the first failure
+    # Cleanup mutates the local task list while cancellation is awaited.
+    for task_id in list(task_ids):
+        # A task that already finished needs no stopping; continue with the rest.
+        await stop_task(redis, task_id)
 
     return {'status': True, 'message': f'All tasks for item {item_id} stopped.'}
 

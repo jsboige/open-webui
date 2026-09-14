@@ -18,7 +18,7 @@ import jwt
 from authlib.integrations.starlette_client import OAuth
 from authlib.oauth2.rfc6749.errors import OAuth2Error
 from authlib.oidc.core import UserInfo
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import (
     HTTPException,
     status,
@@ -202,7 +202,7 @@ NON_EXPIRING_TOKEN_EXPIRES_AT = 253402300799  # 9999-12-31 23:59:59 UTC
 
 
 def _normalize_token_expiry(token: dict) -> dict:
-    """Ensure a token dict always has a numeric ``expires_at``.
+    """Ensure a token dict always has a numeric access-token ``expires_at``.
 
     Resolution order:
     1. If *expires_at* is already present and non-None, trust it.
@@ -232,16 +232,6 @@ def _normalize_token_expiry(token: dict) -> dict:
             "OAuth token response missing 'expires_in', 'expires_at' and 'refresh_token'; treating token as non-expiring"
         )
         expires_at = NON_EXPIRING_TOKEN_EXPIRES_AT
-
-    id_token = token.get('id_token')
-    if id_token:
-        # Cap at the id_token expiry so pipes and tools never receive an expired JWT
-        try:
-            exp = jwt.decode(id_token, options={'verify_signature': False}).get('exp')
-            if exp is not None:
-                expires_at = min(expires_at, int(exp))
-        except Exception as e:
-            log.debug('Could not read exp from id_token: %s', e)
 
     token['expires_at'] = expires_at
     return token
@@ -275,12 +265,8 @@ def encrypt_data(data) -> str:
 
 def decrypt_data(data: str):
     """Decrypt data from storage"""
-    try:
-        decrypted = FERNET.decrypt(data.encode()).decode()
-        return JSONCodec.loads(decrypted)
-    except Exception as e:
-        log.error(f'Error decrypting data: {e}')
-        raise
+    decrypted = FERNET.decrypt(data.encode()).decode()
+    return JSONCodec.loads(decrypted)
 
 
 def _build_oauth_callback_error_message(e: Exception) -> str:
@@ -909,8 +895,19 @@ class OAuthClientManager:
                 oauth_client_info = await recover_static_oauth_client_metadata(connection, oauth_client_info)
                 oauth_client_info = apply_connection_oauth_options(connection, oauth_client_info)
                 return self.add_client(expected_client_id, OAuthClientInformationFull(**oauth_client_info))['client']
+            except InvalidToken:
+                log.error(
+                    'Failed to lazily add OAuth client %s from config: InvalidToken. '
+                    'Stored OAuth client data is invalid; reconnect this tool server.',
+                    expected_client_id,
+                )
+                continue
             except Exception as e:
-                log.error(f'Failed to lazily add OAuth client {expected_client_id} from config: {e}')
+                log.error(
+                    'Failed to lazily add OAuth client %s from config: %s',
+                    expected_client_id,
+                    f'{type(e).__name__}: {e}' if str(e) else type(e).__name__,
+                )
                 continue
 
         return None
@@ -1256,7 +1253,7 @@ class OAuthClientManager:
             if token and not token.get('access_token'):
                 error_desc = token.get('error_description', token.get('error', 'Unknown error'))
                 error_message = f'Token exchange failed: {error_desc}'
-                log.error(f'Invalid token response for client_id {client_id}: {token}')
+                log.error('Invalid token response for client_id %s: %s', client_id, error_desc)
                 token = None
 
             if token:
@@ -1365,10 +1362,21 @@ class OAuthManager:
                 )
                 return None
 
+            # SSO integrations may consume the ID token as well as the access token.
+            expires_at = session.expires_at
+            id_token = session.token.get('id_token')
+            if id_token and expires_at is not None:
+                try:
+                    exp = jwt.decode(id_token, options={'verify_signature': False}).get('exp')
+                    if exp is not None:
+                        expires_at = min(expires_at, int(exp))
+                except Exception as e:
+                    log.debug('Could not read exp from id_token: %s', e)
+
             if (
                 force_refresh
-                or session.expires_at is None
-                or datetime.now() + timedelta(minutes=5) >= datetime.fromtimestamp(session.expires_at)
+                or expires_at is None
+                or datetime.now() + timedelta(minutes=5) >= datetime.fromtimestamp(expires_at)
             ):
                 log.debug('Token refresh needed for user %s, provider %s', user_id, session.provider)
                 refreshed_token = await self._refresh_token(session)
@@ -1910,7 +1918,7 @@ class OAuthManager:
             if provider == 'feishu' and isinstance(user_data, dict) and 'data' in user_data:
                 user_data = user_data['data']
             if not user_data:
-                log.warning(f'OAuth callback failed, user data is missing: {token}')
+                log.warning('OAuth callback failed for provider %s, user data is missing', provider)
                 raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
 
             # Extract the "sub" claim, using custom claim if configured
@@ -1922,6 +1930,7 @@ class OAuthManager:
             if not sub:
                 log.warning(f'OAuth callback failed, sub is missing: {user_data}')
                 raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
+            sub = str(sub)
 
             oauth_data = {}
             oauth_data[provider] = {
@@ -1986,7 +1995,13 @@ class OAuthManager:
                     user = await Users.get_user_by_email(email, db=db)
                     if user:
                         # Update the user with the new oauth sub
-                        await Users.update_user_oauth_by_id(user.id, provider, sub, db=db)
+                        user = await Users.update_user_oauth_by_id(user.id, provider, sub, db=db) or user
+
+            if user:
+                provider_oauth = (user.oauth or {}).get(provider) if isinstance(user.oauth, dict) else None
+                # Lazy repair for legacy rows that stored numeric provider ids as JSON numbers.
+                if isinstance(provider_oauth, dict) and provider_oauth.get('sub') != sub:
+                    user = await Users.update_user_oauth_by_id(user.id, provider, sub, db=db) or user
 
             if user:
                 user = await self.update_user_role_from_oauth(
@@ -2230,7 +2245,6 @@ class OAuthManager:
         sessions via Redis, and deletes their OAuth sessions.
         Returns a JSONResponse per the OIDC Back-Channel Logout 1.0 spec.
         """
-        import jwt as pyjwt
         from fastapi.responses import JSONResponse
 
         # 1. Extract logout_token from form body
@@ -2248,7 +2262,7 @@ class OAuthManager:
 
         # 2. Peek at unverified issuer to match against configured providers
         try:
-            unverified_claims = pyjwt.decode(logout_token, options={'verify_signature': False})
+            unverified_claims = jwt.decode(logout_token, options={'verify_signature': False})
             token_issuer = unverified_claims.get('iss')
         except Exception as e:
             log.warning(f'Back-channel logout: cannot decode logout_token: {e}')
@@ -2265,35 +2279,27 @@ class OAuthManager:
 
         # 3. Find the configured provider whose issuer matches the token
         matched_provider = None
-        matched_client_id = None
+        matched_client = None
         matched_jwks_uri = None
-        matched_issuer = None
 
         for provider_name in OAUTH_PROVIDERS:
-            server_metadata_url = self.get_server_metadata_url(provider_name)
-            if not server_metadata_url:
+            client = self.get_client(provider_name)
+            if not client:
                 continue
 
             try:
-                async with aiohttp.ClientSession(trust_env=True) as session:
-                    async with session.get(server_metadata_url, ssl=AIOHTTP_CLIENT_SESSION_SSL) as r:
-                        if r.status != 200:
-                            continue
-                        oidc_config = await r.json()
-
-                provider_issuer = oidc_config.get('issuer')
-                if provider_issuer and provider_issuer == token_issuer:
-                    client = self.get_client(provider_name)
-                    matched_provider = provider_name
-                    matched_client_id = client.client_id if client else None
-                    matched_jwks_uri = oidc_config.get('jwks_uri')
-                    matched_issuer = provider_issuer
-                    break
+                oidc_config = await client.load_server_metadata()
             except Exception as e:
                 log.debug('Back-channel logout: error checking provider %s: %s', provider_name, e)
                 continue
 
-        if not matched_provider or not matched_client_id or not matched_jwks_uri:
+            if oidc_config.get('issuer') == token_issuer:
+                matched_provider = provider_name
+                matched_client = client
+                matched_jwks_uri = oidc_config.get('jwks_uri')
+                break
+
+        if not matched_provider or not matched_client or not matched_client.client_id or not matched_jwks_uri:
             log.warning(f'Back-channel logout: no configured provider matches issuer {token_issuer}')
             return JSONResponse(
                 status_code=400,
@@ -2305,20 +2311,33 @@ class OAuthManager:
 
         # 4. Validate the logout_token signature and claims
         try:
-            jwks_client = pyjwt.PyJWKClient(matched_jwks_uri)
-            signing_key = jwks_client.get_signing_key_from_jwt(logout_token)
+            token_kid = jwt.get_unverified_header(logout_token).get('kid')
+            if not token_kid:
+                raise jwt.InvalidTokenError('logout_token missing kid header')
 
-            claims = pyjwt.decode(
+            try:
+                jwk_set = jwt.PyJWKSet.from_dict(await matched_client.fetch_jwk_set())
+            except jwt.PyJWTError as e:
+                raise jwt.InvalidTokenError(str(e))
+
+            signing_key = next(
+                (key for key in jwk_set.keys if key.key_id == token_kid and key.public_key_use in ['sig', None]),
+                None,
+            )
+            if not signing_key:
+                raise jwt.InvalidTokenError('no signing key matches the token kid')
+
+            claims = jwt.decode(
                 logout_token,
                 signing_key.key,
                 algorithms=['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512'],
-                audience=matched_client_id,
-                issuer=matched_issuer,
+                audience=matched_client.client_id,
+                issuer=token_issuer,
                 options={
                     'require': ['iss', 'aud', 'iat', 'events'],
                 },
             )
-        except pyjwt.InvalidTokenError as e:
+        except jwt.InvalidTokenError as e:
             log.warning(f'Back-channel logout: invalid logout_token: {e}')
             return JSONResponse(
                 status_code=400,
@@ -2362,7 +2381,7 @@ class OAuthManager:
         # 8. Identify users to log out
         users_to_logout = []
         if sub:
-            user = await Users.get_user_by_oauth_sub(matched_provider, sub, db=db)
+            user = await Users.get_user_by_oauth_sub(matched_provider, str(sub), db=db)
             if user:
                 users_to_logout.append(user)
 

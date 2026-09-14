@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import aiohttp
 import anyio.to_thread
+from cryptography.fernet import InvalidToken
 from fastapi import (
     Depends,
     FastAPI,
@@ -74,6 +75,7 @@ from open_webui.config import (
 )
 from open_webui.constants import ERROR_MESSAGES, TASKS
 from open_webui.env import (
+    USE_SLIM,
     AIOHTTP_CLIENT_SESSION_SSL,
     AUDIT_EXCLUDED_PATHS,
     AUDIT_INCLUDED_PATHS,
@@ -110,6 +112,7 @@ from open_webui.env import (
     SAFE_MODE,
     SCIM_TOKEN,
     VERSION,
+    WEBSOCKET_HEARTBEAT_INTERVAL,
     # Admin Account Runtime Creation
     WEBUI_ADMIN_EMAIL,
     WEBUI_ADMIN_NAME,
@@ -138,7 +141,7 @@ from open_webui.models.chats import ChatForm, Chats
 from open_webui.models.config import Config
 from open_webui.models.functions import Functions
 from open_webui.models.messages import Messages
-from open_webui.models.models import Models
+from open_webui.models.models import Models, normalize_model_tags
 from open_webui.models.users import Users
 from open_webui.routers import (
     analytics,
@@ -204,12 +207,7 @@ from open_webui.utils import logger
 from open_webui.utils.access_control import has_permission
 from open_webui.utils.access_control.folders import has_folder_write_access
 from open_webui.utils.actions import chat_action as chat_action_handler
-from open_webui.utils.asgi_middleware import (
-    AuthTokenMiddleware,
-    CommitSessionMiddleware,
-    RedirectMiddleware,
-    WebsocketUpgradeGuardMiddleware,
-)
+from open_webui.utils.asgi_middleware import AppHTTPMiddleware
 from open_webui.utils.audit import AuditLevel, AuditLoggingMiddleware
 from open_webui.utils.auth import (
     create_admin_user,
@@ -244,7 +242,7 @@ from open_webui.utils.middleware import (
     process_chat_payload,
     process_chat_response,
 )
-from open_webui.utils.misc import merge_model_params
+from open_webui.utils.misc import get_response_error_detail, merge_model_params
 from open_webui.utils.model_ids import strip_provider_model_prefix
 from open_webui.utils.models import (
     check_model_access,
@@ -266,8 +264,7 @@ from open_webui.utils.oauth import (
 )
 from open_webui.utils.plugin import install_tool_and_function_dependencies
 from open_webui.utils.redis import get_redis_client
-from open_webui.utils.security_headers import SecurityHeadersMiddleware
-from open_webui.utils.session_pool import cleanup_response, get_session, stream_wrapper
+from open_webui.utils.session_pool import cleanup_response, get_client_timeout, get_session, stream_wrapper
 from open_webui.utils.tool_approval import (
     ResolveToolCallForm,
     build_tool_approval_resume_payload,
@@ -625,8 +622,18 @@ async def initialize_runtime_config(app: FastAPI):
                         f'mcp:{server_id}',
                         OAuthClientInformationFull(**oauth_client_info),
                     )
+                except InvalidToken:
+                    log.error(
+                        'Error adding OAuth client for MCP tool server %s: InvalidToken. '
+                        'Stored OAuth client data is invalid; reconnect this tool server.',
+                        server_id,
+                    )
                 except Exception as e:
-                    log.error(f'Error adding OAuth client for MCP tool server {server_id}: {e}')
+                    log.error(
+                        'Error adding OAuth client for MCP tool server %s: %s',
+                        server_id,
+                        f'{type(e).__name__}: {e}' if str(e) else type(e).__name__,
+                    )
 
     arena_models = await Config.get('evaluation.arena.models', []) or []
     if any('access_control' in m.get('meta', {}) for m in arena_models):
@@ -796,11 +803,7 @@ if ENABLE_COMPRESSION_MIDDLEWARE:
 # `terminate_force_close` tracebacks under aiosqlite and as random
 # CancelledError storms across the request path. See
 # `open_webui.utils.asgi_middleware` for the rationale.
-app.add_middleware(RedirectMiddleware)
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(CommitSessionMiddleware)
-app.add_middleware(AuthTokenMiddleware, fastapi_app=app)
-app.add_middleware(WebsocketUpgradeGuardMiddleware)
+app.add_middleware(AppHTTPMiddleware)
 
 
 app.add_middleware(
@@ -888,19 +891,17 @@ async def get_models(request: Request, refresh: bool = False, user=Depends(get_v
     models = await get_filtered_models(models, user)
 
     for model in models:
+        info = model.get('info') if isinstance(model.get('info'), dict) else {}
+        meta = info.get('meta') if isinstance(info.get('meta'), dict) else {}
+
         # Remove profile image URL to reduce payload size
-        if model.get('info', {}).get('meta', {}).get('profile_image_url'):
-            model['info']['meta'].pop('profile_image_url', None)
+        meta.pop('profile_image_url', None)
 
-        try:
-            model_tags = [tag.get('name') for tag in model.get('info', {}).get('meta', {}).get('tags', [])]
-            tags = [tag.get('name') for tag in model.get('tags', [])]
+        if 'tags' in meta:
+            meta['tags'] = normalize_model_tags(meta['tags'])
 
-            tags = list(set(model_tags + tags))
-            model['tags'] = [{'name': tag} for tag in tags]
-        except Exception as e:
-            log.debug('Error processing model tags: %s', e)
-            model['tags'] = []
+        tags = normalize_model_tags(meta.get('tags')) + normalize_model_tags(model.get('tags'))
+        model['tags'] = list({tag['name']: tag for tag in tags}.values())
 
     model_order_list = await Config.get('ui.model_order_list')
     if model_order_list:
@@ -1099,17 +1100,41 @@ async def chat_completion(
     metadata = {}
     try:
         model_info = None
+        fallback_model = None
+        missing_base_model = False
         if not model_item.get('direct', False):
             if model_id not in request.app.state.MODELS:
                 raise Exception('Model not found')
 
             model = request.app.state.MODELS[model_id]
             model_info = await Models.get_model_by_id(model_id)
+            missing_base_model = bool(
+                model_info and model_info.base_model_id and model_info.base_model_id not in request.app.state.MODELS
+            )
+
+            if missing_base_model and ENABLE_CUSTOM_MODEL_FALLBACK:
+                fallback_model_id = next(
+                    (
+                        model_id.strip()
+                        for model_id in ((await Config.get('ui.default_models')) or '').split(',')
+                        if model_id.strip()
+                    ),
+                    None,
+                )
+                if fallback_model_id:
+                    fallback_model = request.app.state.MODELS.get(fallback_model_id)
 
             # Check if user has access to the model
             if not BYPASS_MODEL_ACCESS_CONTROL and (user.role != 'admin' or not BYPASS_ADMIN_ACCESS_CONTROL):
                 try:
-                    await check_model_access(user, model, model_info=model_info)
+                    access_model_info = (
+                        model_info.model_copy(update={'base_model_id': None})
+                        if fallback_model is not None
+                        else model_info
+                    )
+                    await check_model_access(user, model, model_info=access_model_info)
+                    if fallback_model is not None:
+                        await check_model_access(user, fallback_model)
                 except Exception as e:
                     raise e
         else:
@@ -1130,22 +1155,12 @@ async def chat_completion(
             form_data['params'] = merge_model_params(model_info_params, request_params)
 
         # Check base model existence for custom models
-        if model_info and model_info.base_model_id:
-            base_model_id = model_info.base_model_id
-            if base_model_id not in request.app.state.MODELS:
-                if ENABLE_CUSTOM_MODEL_FALLBACK:
-                    default_models = ((await Config.get('ui.default_models')) or '').split(',')
-
-                    fallback_model_id = default_models[0].strip() if default_models[0] else None
-
-                    if fallback_model_id and fallback_model_id in request.app.state.MODELS:
-                        # Update model and form_data so routing uses the fallback model's type
-                        model = request.app.state.MODELS[fallback_model_id]
-                        form_data['model'] = fallback_model_id
-                    else:
-                        raise Exception('Model not found')
-                else:
-                    raise Exception('Model not found')
+        if missing_base_model:
+            if fallback_model is None:
+                raise Exception('Model not found')
+            # Update model and form_data so routing uses the fallback model's type
+            model = fallback_model
+            form_data['model'] = fallback_model['id']
 
         # Chat Params
         stream_delta_chunk_size = form_data.get('params', {}).get('stream_delta_chunk_size')
@@ -1470,15 +1485,13 @@ async def chat_completion(
                     # The old frontend saveChatHandler did this on every message;
                     # now the backend owns persistence.
                     chat_files = metadata.get('files')
-                    if chat_files is not None or selected_chat_models:
-                        existing_chat = await Chats.get_chat_by_id(chat_id)
-                        if existing_chat:
-                            updated = {**existing_chat.chat}
-                            if chat_files is not None:
-                                updated['files'] = chat_files
-                            if selected_chat_models:
-                                updated['models'] = selected_chat_models
-                            await Chats.update_chat_by_id(chat_id, updated, touch=False)
+                    chat_fields = {}
+                    if chat_files is not None:
+                        chat_fields['files'] = chat_files
+                    if selected_chat_models:
+                        chat_fields['models'] = selected_chat_models
+                    if chat_fields:
+                        await Chats.update_chat_by_id(chat_id, chat_fields, touch=False)
 
                     await Chats.update_chat_variables_by_id(chat_id, chat_variables)
 
@@ -1611,6 +1624,9 @@ async def chat_completion(
 
     async def process_chat(request, form_data, user, metadata, model, tasks=None):
         try:
+            ctx = None
+            if metadata.get('assistant_message_id'):
+                ctx = await build_chat_response_context(request, form_data, user, model, metadata, tasks, [])
             form_data, metadata, events = await process_chat_payload(request, form_data, user, metadata, model)
 
             if await drain_approved_tool_calls(request, form_data, user, model, metadata):
@@ -1624,16 +1640,12 @@ async def chat_completion(
             # raise so the except-block below emits chat:message:error +
             # chat:tasks:cancel, unblocking the frontend.
             if isinstance(response, JSONResponse) and response.status_code >= 400:
-                try:
-                    error_body = JSONCodec.loads(response.body.decode('utf-8', 'replace'))
-                    detail = error_body.get('error', error_body) if isinstance(error_body, dict) else error_body
-                    if isinstance(detail, dict):
-                        detail = detail.get('message', detail.get('detail', str(detail)))
-                except Exception:
-                    detail = f'Provider returned HTTP {response.status_code}'
-                raise Exception(detail)
+                raise Exception(get_response_error_detail(response))
 
-            ctx = await build_chat_response_context(request, form_data, user, model, metadata, tasks, events)
+            if ctx is None:
+                ctx = await build_chat_response_context(request, form_data, user, model, metadata, tasks, events)
+            else:
+                ctx.update(form_data=form_data, metadata=metadata, events=events)
 
             return await process_chat_response(response, ctx)
         except asyncio.CancelledError:
@@ -1857,6 +1869,7 @@ async def chat_completion(
 generate_chat_completions = chat_completion
 generate_chat_completion = chat_completion
 
+
 @app.post('/api/v1/chats/{id}/messages/{message_id}/resolve')
 async def resolve_chat_message_tool_call(
     request: Request,
@@ -1908,7 +1921,7 @@ async def count_message_tokens(
 
 
 async def passthrough_anthropic_messages(request: Request, form_data: dict, user) -> Response | dict:
-    requested_model, payload, url, key, headers, cookies = await openai.get_anthropic_token_count_target(
+    requested_model, payload, url, key, headers, cookies = await openai.get_anthropic_request_target(
         request, form_data, user
     )
     request_url = f'{url.rstrip("/")}/messages'
@@ -1924,7 +1937,7 @@ async def passthrough_anthropic_messages(request: Request, form_data: dict, user
             headers=headers,
             cookies=cookies,
             ssl=AIOHTTP_CLIENT_SESSION_SSL,
-            timeout=aiohttp.ClientTimeout(total=openai.AIOHTTP_CLIENT_TIMEOUT),
+            timeout=get_client_timeout(stream=bool(payload.get('stream'))),
         )
 
         if 'text/event-stream' in response.headers.get('Content-Type', ''):
@@ -2254,7 +2267,9 @@ async def get_app_config(request: Request):
         'ui.default_models',
         'ui.default_pinned_models',
         'ui.default_interface_settings',
+        'ui.i18n',
         'ui.prompt_suggestions',
+        'ui.prompt_suggestions_i18n',
         'code_execution.engine',
         'code_interpreter.engine',
         'audio.tts.engine',
@@ -2277,6 +2292,7 @@ async def get_app_config(request: Request):
         'name': app.state.WEBUI_NAME,
         'version': VERSION,
         'default_locale': str(DEFAULT_LOCALE),
+        'i18n': config.get('ui.i18n') or {},
         'oauth': {
             # Hide providers (and thus the login buttons / auto-redirect) when OAuth
             # is disabled, without clearing the admin's provider configuration.
@@ -2288,6 +2304,7 @@ async def get_app_config(request: Request):
             'auto_redirect': config.get('oauth.auto_redirect'),
         },
         'features': {
+            'slim': USE_SLIM,
             # --- Public: required by login/signup page pre-auth ---
             'auth': WEBUI_AUTH,
             'auth_trusted_header': bool(WEBUI_AUTH_TRUSTED_EMAIL_HEADER),
@@ -2296,6 +2313,11 @@ async def get_app_config(request: Request):
             'enable_signup': config.get('ui.enable_signup'),
             'enable_login_form': config.get('ui.enable_login_form'),
             'enable_websocket': ENABLE_WEBSOCKET_SUPPORT,
+            **(
+                {'websocket_heartbeat_interval': WEBSOCKET_HEARTBEAT_INTERVAL}
+                if WEBSOCKET_HEARTBEAT_INTERVAL is not None
+                else {}
+            ),
             # --- Authenticated: only consumed by logged-in frontend ---
             **(
                 {
@@ -2350,6 +2372,7 @@ async def get_app_config(request: Request):
                 'default_models': config.get('ui.default_models'),
                 'default_pinned_models': config.get('ui.default_pinned_models'),
                 'default_prompt_suggestions': config.get('ui.prompt_suggestions'),
+                'default_prompt_suggestions_i18n': config.get('ui.prompt_suggestions_i18n'),
                 **({'user_count': user_count} if user_count is not None else {}),
                 'code': {
                     'engine': config.get('code_execution.engine'),
@@ -2564,8 +2587,8 @@ async def get_app_latest_release_version(user=Depends(get_verified_user)):
 
                 return {'current': VERSION, 'latest': latest_version[1:]}
     except Exception as e:
-        log.debug(e)
-        return {'current': VERSION, 'latest': VERSION}
+        log.warning(f'Version update check failed: {e}')
+        return {'current': VERSION, 'latest': None}
 
 
 @app.get('/api/changelog')
@@ -2686,8 +2709,19 @@ async def register_client(request, client_id: str) -> bool:
                 oauth_server_key,
                 oauth_scope=oauth_scope,
             )
+    except InvalidToken:
+        log.error(
+            'OAuth client re-registration failed for %s: InvalidToken. '
+            'Stored OAuth client data is invalid; reconnect this tool server.',
+            client_id,
+        )
+        return False
     except Exception as e:
-        log.error(f'OAuth client re-registration failed for {client_id}: {e}')
+        log.error(
+            'OAuth client re-registration failed for %s: %s',
+            client_id,
+            f'{type(e).__name__}: {e}' if str(e) else type(e).__name__,
+        )
         return False
 
     try:
@@ -2884,7 +2918,7 @@ def _sync_db_ping() -> None:
     """Verify the database is reachable with a simple SELECT 1.
 
     Uses a raw connection from the engine pool instead of the thread-local
-    ScopedSession.  This is necessary because CommitSessionMiddleware
+    ScopedSession.  This is necessary because AppHTTPMiddleware
     deliberately skips healthcheck paths (/health, /ready, /health/db),
     so any ScopedSession opened on a healthcheck worker thread is never
     rolled back or removed.  If the session ever enters an invalid state
@@ -2958,6 +2992,11 @@ async def check_db_health():
 
 
 # --- static assets & files ---
+# Windows registry entries can override these with text/plain, which breaks module and wasm loading
+mimetypes.add_type('text/javascript', '.js')
+mimetypes.add_type('text/javascript', '.mjs')
+mimetypes.add_type('application/wasm', '.wasm')
+
 # Serve build-time static assets (CSS, JS, images, favicon, etc.)
 app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
 
@@ -3003,7 +3042,6 @@ def swagger_ui_html(*args, **kwargs):
 applications.get_swagger_ui_html = swagger_ui_html
 
 if os.path.exists(FRONTEND_BUILD_DIR):
-    mimetypes.add_type('text/javascript', '.js')
     pyodide_dir = FRONTEND_BUILD_DIR / 'pyodide'
     if os.path.exists(pyodide_dir):
         app.mount('/pyodide', CORSStaticFiles(directory=pyodide_dir), name='pyodide')

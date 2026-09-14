@@ -11,7 +11,8 @@
 	import { onMount, getContext, tick, onDestroy } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import type { i18n as i18nType } from 'i18next';
-	import { WEBUI_NAME, config, user, workspaceActions } from '$lib/stores';
+	import { WEBUI_NAME, config, user, workspaceActions, workspaceCounts } from '$lib/stores';
+	import { COMMUNITY_ORIGINS } from '$lib/constants';
 
 	import {
 		createNewPrompt,
@@ -179,6 +180,7 @@
 			if (res) {
 				prompts = res.items;
 				total = res.total;
+				workspaceCounts.update((counts) => ({ ...counts, prompts: total }));
 
 				// get tags
 				tags = await getPromptTags(localStorage.token).catch((error) => {
@@ -300,11 +302,7 @@
 		loaded = true;
 
 		const onMessage = async (event: MessageEvent) => {
-			if (
-				!['https://openwebui.com', 'https://www.openwebui.com', 'http://localhost:9999'].includes(
-					event.origin
-				)
-			) {
+			if (!COMMUNITY_ORIGINS.includes(event.origin)) {
 				return;
 			}
 
@@ -497,6 +495,10 @@
 							bind:value={selectedTag}
 							align="end"
 							items={tags.map((tag) => ({ value: tag, label: tag }))}
+							onChange={async () => {
+								page = 1;
+								await tick();
+							}}
 						/>
 					{/if}
 				</div>

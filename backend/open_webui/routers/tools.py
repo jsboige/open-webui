@@ -32,6 +32,7 @@ from open_webui.utils.access_control import (
 )
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.plugin import (
+    get_tool_contents_cache,
     get_tools_cache,
     get_tool_module_from_cache,
     load_tool_module_by_id,
@@ -73,9 +74,7 @@ async def get_tools(
     tools = []
     bypass_access_control = user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL
     user_group_ids = (
-        set()
-        if bypass_access_control
-        else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
+        set() if bypass_access_control else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
     )
 
     # Local Tools
@@ -210,9 +209,7 @@ async def get_tool_list(user=Depends(get_verified_user), db: AsyncSession = Depe
 
     bypass_access_control = user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL
     user_group_ids = (
-        set()
-        if bypass_access_control
-        else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
+        set() if bypass_access_control else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
     )
     tools = await Tools.get_tools(
         defer_content=True,
@@ -343,6 +340,7 @@ async def export_tools(
     return await Tools.get_tools(
         db=db,
         user_id=None if bypass_access_control else user.id,
+        permission='write',
     )
 
 
@@ -684,6 +682,8 @@ async def delete_tools_by_id(
     if result:
         TOOLS = get_tools_cache(request)
         TOOLS.pop(id, None)
+        TOOL_CONTENTS = get_tool_contents_cache(request)
+        TOOL_CONTENTS.pop(id, None)
         await publish_event(
             request,
             EVENTS.TOOL_DELETED,

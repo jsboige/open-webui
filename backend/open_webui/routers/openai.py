@@ -30,6 +30,7 @@ from open_webui.env import (
     ENABLE_OPENAI_API_PASSTHROUGH,
     FORWARD_SESSION_INFO_HEADER_CHAT_ID,
     MODELS_CACHE_TTL,
+    REDIS_KEY_PREFIX,
 )
 from open_webui.events import EVENTS, publish_event, publish_model_provider_request_failed
 from open_webui.internal.db import get_async_session
@@ -39,14 +40,11 @@ from open_webui.models.groups import Groups
 from open_webui.models.models import Models
 from open_webui.models.users import UserModel
 from open_webui.utils.access_control import check_model_access, has_connection_access, has_permission
-from open_webui.utils.anthropic import get_anthropic_models, is_anthropic_url
+from open_webui.utils.anthropic import ANTHROPIC_VERSION, get_anthropic_models, is_anthropic_url
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.headers import get_custom_headers, include_user_info_headers
 from open_webui.utils.json_codec import JSONCodec
-from open_webui.utils.misc import (
-    convert_logit_bias_input_to_json,
-    stream_chunks_handler,
-)
+from open_webui.utils.misc import convert_logit_bias_input_to_json
 from open_webui.utils.model_ids import strip_provider_model_prefix
 from open_webui.utils.payload import (
     apply_model_params_to_body_openai,
@@ -76,14 +74,16 @@ log = logging.getLogger(__name__)
 # response body.  Forwarding them verbatim causes desktop / programmatic
 # clients to attempt decompression of an already-decoded payload, resulting
 # in ZlibError.  See https://github.com/aio-libs/aiohttp/issues/4462.
-_STRIP_PROXY_HEADERS = frozenset({'Content-Encoding', 'Content-Length', 'Transfer-Encoding'})
+# Also drop server and date: uvicorn adds its own and forwarding both duplicates them.
+_STRIP_PROXY_HEADERS = frozenset({'content-encoding', 'content-length', 'transfer-encoding', 'server', 'date'})
 _MODEL_LIST_TIMEOUT = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST)
 _UNSUPPORTED_OPENAI_MODEL_KEYWORDS = ('babbage', 'dall-e', 'davinci', 'embedding', 'tts', 'whisper')
+BASE_MODELS_CACHE_KEY = f'{REDIS_KEY_PREFIX}:models:base'
 
 
 def _clean_proxy_headers(raw_headers) -> dict:
-    """Return a copy of *raw_headers* with stale encoding headers removed."""
-    return {k: v for k, v in raw_headers.items() if k not in _STRIP_PROXY_HEADERS}
+    """Return a copy of *raw_headers* without the encoding, server and date headers."""
+    return {k: v for k, v in raw_headers.items() if k.lower() not in _STRIP_PROXY_HEADERS}
 
 
 async def send_get_request(
@@ -104,7 +104,7 @@ async def send_get_request(
                 cookies = None
 
                 if ENABLE_FORWARD_USER_INFO_HEADERS and user:
-                    headers = include_user_info_headers(headers, user)
+                    headers = include_user_info_headers(headers, user, request=request)
 
             async with session.get(
                 url,
@@ -160,7 +160,7 @@ async def get_headers_and_cookies(
     metadata: dict | None = None,
     user: UserModel = None,
 ):
-    cookies = {}
+    cookies = getattr(request, 'cookies', {}) if config.get('forward_cookies', False) else {}
     headers = {
         'Content-Type': 'application/json',
         **(
@@ -177,7 +177,7 @@ async def get_headers_and_cookies(
     }
 
     if ENABLE_FORWARD_USER_INFO_HEADERS and user:
-        headers = include_user_info_headers(headers, user)
+        headers = include_user_info_headers(headers, user, request=request)
         if metadata and metadata.get('chat_id'):
             headers[FORWARD_SESSION_INFO_HEADER_CHAT_ID] = metadata.get('chat_id')
 
@@ -190,11 +190,8 @@ async def get_headers_and_cookies(
     elif auth_type == 'none':
         token = None
     elif auth_type == 'session':
-        cookies = request.cookies
         token = request.state.token.credentials
     elif auth_type == 'system_oauth':
-        cookies = request.cookies
-
         oauth_token = None
         try:
             if request.cookies.get('oauth_session_id', None):
@@ -348,6 +345,9 @@ async def get_openai_connection(idx: int) -> tuple[str, str, dict]:
 
 async def clear_openai_model_cache(request: Request):
     await get_all_models.cache.clear()
+    redis = getattr(request.app.state, 'redis', None)
+    if redis is not None:
+        await redis.delete(BASE_MODELS_CACHE_KEY)
     request.app.state.BASE_MODELS = []
     request.app.state.OPENAI_MODELS = {}
     models = getattr(request.app.state, 'MODELS', None)
@@ -451,8 +451,8 @@ async def send_model_management_request(
             await cleanup_response(response)
 
 
-async def get_anthropic_token_count_target(request: Request, form_data: dict, user: UserModel):
-    """Resolve the upstream LiteLLM connection for an Anthropic token-count request."""
+async def get_anthropic_request_target(request: Request, form_data: dict, user: UserModel):
+    """Resolve the upstream connection, payload and auth headers for a native Anthropic request."""
     requested_model = form_data.get('model')
     if not requested_model:
         raise HTTPException(status_code=400, detail='model is required')
@@ -480,14 +480,20 @@ async def get_anthropic_token_count_target(request: Request, form_data: dict, us
     payload['model'] = strip_provider_model_prefix(payload['model'], prefix_id)
 
     headers, cookies = await get_headers_and_cookies(request, url, key, api_config, user=user)
+
+    # Anthropic's native endpoints reject bearer auth, the key belongs in x-api-key.
+    if is_anthropic_url(url):
+        headers.setdefault('anthropic-version', ANTHROPIC_VERSION)
+        if api_config.get('auth_type') in (None, 'bearer'):
+            headers.pop('Authorization', None)
+            headers.setdefault('x-api-key', key)
+
     return requested_model, payload, url, key, headers, cookies
 
 
 async def count_anthropic_tokens(request: Request, form_data: dict, user: UserModel) -> int:
     """Forward an Anthropic token-count request through an OpenAI-compatible connection."""
-    requested_model, payload, url, key, headers, cookies = await get_anthropic_token_count_target(
-        request, form_data, user
-    )
+    requested_model, payload, url, key, headers, cookies = await get_anthropic_request_target(request, form_data, user)
     request_url = f'{url.rstrip("/")}/messages/count_tokens'
     response = None
 
@@ -568,14 +574,7 @@ async def update_config(request: Request, form_data: OpenAIConfigForm, user=Depe
         }
     )
 
-    await get_all_models.cache.clear()
-    request.app.state.BASE_MODELS = []
-    request.app.state.OPENAI_MODELS = {}
-    models = getattr(request.app.state, 'MODELS', None)
-    if hasattr(models, 'clear'):
-        models.clear()
-    else:
-        request.app.state.MODELS = {}
+    await clear_openai_model_cache(request)
 
     await publish_event(
         request,
@@ -747,6 +746,8 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
 
                 if prefix_id:
                     model['id'] = f'{prefix_id}.{model.get("id", model.get("name", ""))}'
+                    if model.get('name'):
+                        model['name'] = f'{prefix_id}.{model["name"]}'
 
                 if tags:
                     model['tags'] = tags
@@ -861,8 +862,11 @@ async def get_all_models(request: Request, user: UserModel) -> dict[str, list]:
 
 
 @router.get('/models')
-@router.get('/models/{url_idx}', dependencies=[Depends(get_admin_user)])
+@router.get('/models/{url_idx}')
 async def get_models(request: Request, url_idx: int | None = None, user=Depends(get_verified_user)):
+    if url_idx is not None and user.role != 'admin':
+        raise HTTPException(status_code=401, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+
     if not await Config.get('openai.enable'):
         raise HTTPException(status_code=503, detail='OpenAI API is disabled')
 
@@ -1351,8 +1355,21 @@ def convert_to_responses_payload(payload: dict) -> dict:
                     content_parts.append({'type': text_type, 'text': part.get('text', '')})
                 elif part.get('type') == 'image_url':
                     url_data = part.get('image_url', {})
-                    url = url_data.get('url', '') if isinstance(url_data, dict) else url_data
-                    content_parts.append({'type': 'input_image', 'image_url': url})
+                    if isinstance(url_data, dict):
+                        url = url_data.get('url', '')
+                        detail = url_data.get('detail') or 'auto'
+                    else:
+                        url = url_data if isinstance(url_data, str) else ''
+                        detail = 'auto'
+                    content_parts.append({'type': 'input_image', 'image_url': url, 'detail': detail})
+                elif part.get('type') == 'file':
+                    # OpenAI-compatible proxy path only. Open WebUI attachments are handled
+                    # separately via metadata.files/RAG and must not be converted here.
+                    file = part.get('file')
+                    if isinstance(file, dict):
+                        file_part = {k: file[k] for k in ('file_id', 'file_data', 'filename') if k in file}
+                        if 'file_id' in file_part or 'file_data' in file_part:
+                            content_parts.append({'type': 'input_file', **file_part})
         else:
             content_parts = [{'type': text_type, 'text': str(content)}]
 
@@ -1550,6 +1567,20 @@ async def generate_chat_completion(
 
     is_responses = api_config.get('api_type') == 'responses'
 
+    # Explicit continuation keeps llama.cpp from echoing the prefill in streamed replies.
+    if (
+        api_config.get('provider') == 'llama.cpp'
+        # These flags apply to Chat Completions, not the Responses API.
+        and not is_responses
+        # The frontend sends this ID when the user clicks Continue.
+        and (metadata or {}).get('assistant_message_id')
+        # Tool follow-ups retain the metadata but must start a new assistant turn.
+        and payload.get('messages')
+        and payload['messages'][-1].get('role') == 'assistant'
+    ):
+        payload['continue_final_message'] = True
+        payload['add_generation_prompt'] = False
+
     if api_config.get('azure') or api_config.get('provider') == 'azure':
         # Only set api-key header if not using Azure Entra ID authentication
         auth_type = api_config.get('auth_type', 'bearer')
@@ -1658,7 +1689,7 @@ async def generate_chat_completion(
 
             streaming = True
             return StreamingResponse(
-                stream_wrapper(r, content_handler=stream_chunks_handler),
+                stream_wrapper(r),
                 status_code=r.status,
                 headers=_clean_proxy_headers(r.headers),
             )

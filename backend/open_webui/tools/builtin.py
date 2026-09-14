@@ -10,6 +10,7 @@ import asyncio
 import logging
 import time
 from typing import Literal, Optional
+from urllib.parse import unquote
 
 from fastapi import HTTPException, Request
 
@@ -389,11 +390,16 @@ async def generate_image(
         images = await image_generations(
             request=__request__,
             form_data=CreateImageForm(prompt=prompt),
+            metadata=(
+                {'channel_id': __chat_id__.removeprefix('channel:'), 'message_id': __message_id__}
+                if isinstance(__chat_id__, str) and __chat_id__.startswith('channel:')
+                else None
+            ),
             user=user,
         )
 
         # Prepare file entries for the images
-        image_files = [{'type': 'image', 'url': img['url']} for img in images]
+        image_files = [{'type': 'image', **img} for img in images]
 
         # Persist files to DB if chat context is available
         if is_saved_chat_id(__chat_id__) and __message_id__ and images:
@@ -457,11 +463,16 @@ async def edit_image(
         images = await image_edits(
             request=__request__,
             form_data=EditImageForm(prompt=prompt, image=image_urls),
+            metadata=(
+                {'channel_id': __chat_id__.removeprefix('channel:'), 'message_id': __message_id__}
+                if isinstance(__chat_id__, str) and __chat_id__.startswith('channel:')
+                else None
+            ),
             user=user,
         )
 
         # Prepare file entries for the images
-        image_files = [{'type': 'image', 'url': img['url']} for img in images]
+        image_files = [{'type': 'image', **img} for img in images]
 
         # Persist files to DB if chat context is available
         if is_saved_chat_id(__chat_id__) and __message_id__ and images:
@@ -1559,9 +1570,7 @@ async def search_chats(
                         start = max(0, idx - 50)
                         end = min(len(content), idx + len(needle) + 100)
                         snippet = (
-                            ('...' if start > 0 else '')
-                            + content[start:end]
-                            + ('...' if end < len(content) else '')
+                            ('...' if start > 0 else '') + content[start:end] + ('...' if end < len(content) else '')
                         )
                         break
                 if snippet:
@@ -2481,7 +2490,7 @@ async def grep_chat_files(
         if not files_to_search:
             return JSONCodec.dumps({'error': 'No accessible files found'})
 
-        return _grep_file_models(files_to_search, pattern, case_insensitive, count_only)
+        return await asyncio.to_thread(_grep_file_models, files_to_search, pattern, case_insensitive, count_only)
     except Exception as e:
         log.exception(f'grep_chat_files error: {e}')
         return JSONCodec.dumps({'error': str(e)})
@@ -2719,7 +2728,7 @@ async def grep_knowledge_files(
         if not files_to_search:
             return JSONCodec.dumps({'error': 'No accessible files found'})
 
-        return _grep_file_models(files_to_search, pattern, case_insensitive, count_only)
+        return await asyncio.to_thread(_grep_file_models, files_to_search, pattern, case_insensitive, count_only)
 
     except Exception as e:
         log.exception(f'grep_knowledge_files error: {e}')
@@ -3460,6 +3469,7 @@ async def view_skill(
     id: str,
     __request__: Request = None,
     __user__: dict = None,
+    __metadata__: dict = None,
 ) -> str:
     """
     Load the full instructions of a skill by its id from the available skills manifest.
@@ -3475,6 +3485,16 @@ async def view_skill(
         return JSONCodec.dumps({'error': 'User context not available'})
 
     try:
+        terminal_skill_prefix = 'terminal:'
+        if isinstance(id, str) and id.startswith(terminal_skill_prefix):
+            from open_webui.utils.terminals import get_terminal_skill
+
+            skill_name = unquote(id.removeprefix(terminal_skill_prefix))
+            skill = await get_terminal_skill(__request__, __user__, __metadata__ or {}, skill_name)
+            if not skill:
+                return JSONCodec.dumps({'error': f"Skill '{id}' not found"})
+            return JSONCodec.dumps(skill, ensure_ascii=False)
+
         from open_webui.models.access_grants import AccessGrants
         from open_webui.models.skills import Skills
 

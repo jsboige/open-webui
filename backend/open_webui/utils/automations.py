@@ -25,8 +25,7 @@ from typing import Optional
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from dateutil import parser as date_parser
-from dateutil.rrule import rrulestr
+from dateutil.rrule import HOURLY, MINUTELY, SECONDLY, rruleset, rrulestr
 from fastapi import Request
 from fastapi.security import HTTPAuthorizationCredentials
 from open_webui.constants import ERROR_MESSAGES
@@ -78,44 +77,48 @@ def _parse_rule(s: str, now: Optional[datetime] = None):
     SECONDLY/MINUTELY/HOURLY rules use a fixed epoch DTSTART (2000-01-01 00:00)
     so intervals snap to clock boundaries (e.g. every 5min = :00, :05, :10).
     """
-    lines = s.splitlines()
-    rule_count = sum(1 for line in lines if line.upper().startswith('RRULE:'))
-    if 'EXRULE' in s.upper():
+    upper = s.upper()
+    if 'EXRULE' in upper:
         raise ValueError('EXRULE is not supported in recurrence rules')
-    if rule_count > 1:
+
+    parsed = rrulestr(s, ignoretz=True)
+    rules = parsed._rrule if isinstance(parsed, rruleset) else [parsed]
+    if len(rules) > 1:
         raise ValueError('only one RRULE is supported per recurrence rule')
 
-    rrule_line = next((line for line in lines if line.upper().startswith('RRULE:')), s)
-    raw = rrule_line.split(':', 1)[1] if rrule_line.upper().startswith('RRULE:') else rrule_line
-    parts = {k.upper(): v for k, v in (p.split('=', 1) for p in raw.split(';') if '=' in p)}
-    freq = parts.get('FREQ', '')
+    rule = rules[0]
+    start = rule._dtstart.replace(tzinfo=None)
+    anchor = now or datetime.now()
+    lines = s.splitlines()
+    stripped = '\n'.join(line for line in lines if not line.upper().startswith('DTSTART')) or s
+    has_dtstart = any(line.upper().startswith('DTSTART') for line in lines)
+    step = {
+        SECONDLY: timedelta(seconds=rule._interval),
+        MINUTELY: timedelta(minutes=rule._interval),
+        HOURLY: timedelta(hours=rule._interval),
+    }.get(rule._freq)
 
-    if freq in ('SECONDLY', 'MINUTELY', 'HOURLY'):
-        epoch = datetime(2000, 1, 1, 0, 0, 0)
-        anchor = now or datetime.now()
-        rule = '\n'.join(line for line in lines if not line.upper().startswith('DTSTART')) or s
-        dtstart = next((line.rsplit(':', 1)[-1] for line in lines if line.upper().startswith('DTSTART')), None)
-        interval = int(parts.get('INTERVAL', '1'))
-        if interval < 1:
-            raise ValueError('RRULE INTERVAL must be a positive integer')
-        if freq == 'SECONDLY':
-            step = timedelta(seconds=interval)
-        elif freq == 'MINUTELY':
-            step = timedelta(minutes=interval)
-        else:
-            step = timedelta(hours=interval)
-        if dtstart:
-            start = date_parser.parse(dtstart, ignoretz=True)
-            emitted = ((anchor - start) // step) if anchor > start else 0
-            if 'BYMINUTE' in parts:
-                emitted *= len(parts['BYMINUTE'].split(','))
-            if 'BYSECOND' in parts:
-                emitted *= len(parts['BYSECOND'].split(','))
-            if emitted <= 100_000:
-                return rrulestr(s, ignoretz=True)
-        anchor = epoch + ((anchor - epoch) // step) * step
-        return rrulestr(rule, dtstart=anchor, ignoretz=True)
-    return rrulestr(s, ignoretz=True)
+    if step is None:
+        if not rule._dtstart.tzinfo:
+            return parsed
+        return rrulestr(stripped, dtstart=start, ignoretz=True)
+
+    if rule._interval < 1:
+        raise ValueError('RRULE INTERVAL must be a positive integer')
+    dtstart = None
+    if has_dtstart:
+        emitted = ((anchor - start) // step) if anchor > start else 0
+        emitted *= len(rule._byminute or (0,)) * len(rule._bysecond or (0,))
+        if emitted <= 100_000:
+            if rule._dtstart.tzinfo:
+                dtstart = start
+            else:
+                return parsed
+    if not has_dtstart or dtstart is None:
+        epoch = datetime(2000, 1, 1)
+        dtstart = epoch + ((anchor - epoch) // step) * step
+
+    return rrulestr(stripped, dtstart=dtstart, ignoretz=True)
 
 
 def validate_rrule(s: str, tz: str = None) -> None:
@@ -182,6 +185,7 @@ def rrule_interval_seconds(s: str) -> Optional[int]:
     """
     if 'COUNT=1' in s:
         return None
+    s = '\n'.join(line for line in s.splitlines() if not line.upper().startswith('DTSTART')) or s
     now = datetime.now()
     rule = _parse_rule(s, now)
     first = rule.after(now)
@@ -301,17 +305,20 @@ def _build_request(
     return request
 
 
-async def _resolve_model_defaults(app, model_id: str) -> tuple[list[str], dict, list[str], Optional[str]]:
+async def _resolve_model_defaults(app, model_id: str) -> dict:
     models = getattr(app.state, 'MODELS', {})
     model = models.get(model_id, {})
     meta = model.get('info', {}).get('meta', {})
 
-    tool_ids = list(meta.get('toolIds') or [])
-    filter_ids = list(meta.get('defaultFilterIds') or [])
-    terminal_id = meta.get('terminalId') or None
+    defaults = {
+        'tool_ids': list(meta.get('toolIds') or []),
+        'filter_ids': list(meta.get('defaultFilterIds') or []),
+        'terminal_id': meta.get('terminalId'),
+    }
+    defaults = {key: value for key, value in defaults.items() if value}
     default_feature_ids = meta.get('defaultFeatureIds', [])
     if not default_feature_ids:
-        return tool_ids, {}, filter_ids, terminal_id
+        return defaults
 
     capabilities = meta.get('capabilities') or {}
     features = {}
@@ -329,7 +336,9 @@ async def _resolve_model_defaults(app, model_id: str) -> tuple[list[str], dict, 
             if capabilities.get(feature_id) and feature_checks[feature_id]:
                 features[feature_id] = True
 
-    return tool_ids, features, filter_ids, terminal_id
+    if features:
+        defaults['features'] = features
+    return defaults
 
 
 async def _set_terminal_cwd(app, server_id: str, user, cwd: str, chat_id: str) -> None:
@@ -432,9 +441,8 @@ async def _execute_channel_automation(
             db,
         )
 
-    tool_ids, features, filter_ids, _ = await _resolve_model_defaults(app, model_id)
-
     form_data = {
+        **await _resolve_model_defaults(app, model_id),
         'model': model_id,
         'messages': [
             {
@@ -450,13 +458,6 @@ async def _execute_channel_automation(
         'automation_id': automation.id,
         'background_tasks': {},
     }
-    if tool_ids:
-        form_data['tool_ids'] = tool_ids
-    if features:
-        form_data['features'] = features
-    if filter_ids:
-        form_data['filter_ids'] = filter_ids
-
     await app.state.CHAT_COMPLETION_HANDLER(request, form_data, user=user)
 
     from open_webui.socket.main import sio
@@ -611,11 +612,9 @@ async def execute_automation(app, automation: AutomationModel) -> None:
             room=f'user:{automation.user_id}',
         )
 
-        # Resolve model defaults (frontend does this, backend doesn't)
-        tool_ids, features, filter_ids, terminal_id = await _resolve_model_defaults(app, model_id)
-
         # Build the same payload the frontend sends to /api/chat/completions
         form_data = {
+            **await _resolve_model_defaults(app, model_id),
             'model': model_id,
             'messages': [{'role': 'user', 'content': prompt}],
             'stream': True,
@@ -632,15 +631,6 @@ async def execute_automation(app, automation: AutomationModel) -> None:
             'automation_id': automation.id,
             'background_tasks': {},
         }
-        if tool_ids:
-            form_data['tool_ids'] = tool_ids
-        if features:
-            form_data['features'] = features
-        if filter_ids:
-            form_data['filter_ids'] = filter_ids
-        if terminal_id:
-            form_data['terminal_id'] = terminal_id
-
         # Call the full chat completion pipeline (same as POST /api/chat/completions).
         # The handler reference is stored on app.state to avoid circular imports.
         request = _build_request(app, token=token)

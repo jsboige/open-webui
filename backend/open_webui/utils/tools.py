@@ -102,7 +102,12 @@ from open_webui.tools.builtin import (
 )
 from open_webui.utils.access_control import has_access, has_connection_access, has_permission
 from open_webui.utils.chat_id import is_saved_chat_id
-from open_webui.utils.headers import get_custom_headers, include_user_info_headers
+from open_webui.utils.headers import (
+    bearer_auth_header,
+    get_custom_headers,
+    include_user_info_headers,
+    normalize_bearer_token,
+)
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.misc import is_string_allowed
 from open_webui.utils.plugin import get_tool_contents_cache, get_tools_cache, load_tool_module_by_id
@@ -117,15 +122,6 @@ from pydantic import BaseModel, Field, create_model
 from pydantic.fields import FieldInfo
 
 log = logging.getLogger(__name__)
-
-
-def normalize_bearer_token(token: Any) -> str:
-    return token.strip() if isinstance(token, str) else token or ''
-
-
-def bearer_auth_header(token: Any) -> dict[str, str]:
-    token = normalize_bearer_token(token)
-    return {'Authorization': f'Bearer {token}'} if token else {}
 
 
 async def build_tool_server_headers(
@@ -149,18 +145,16 @@ async def build_tool_server_headers(
 
     auth_type = connection.get('auth_type', 'bearer')
     headers = {}
-    cookies = {}
+    cookies = getattr(request, 'cookies', {}) if connection.get('forward_cookies', False) else {}
 
     if auth_type == 'bearer':
-        headers['Authorization'] = f'Bearer {connection.get("key", "")}'
+        headers.update(bearer_auth_header(connection.get('key', '')))
     elif auth_type == 'session':
-        cookies = request.cookies if hasattr(request, 'cookies') else {}
-        headers['Authorization'] = f'Bearer {request.state.token.credentials}'
+        headers.update(bearer_auth_header(request.state.token.credentials))
     elif auth_type == 'system_oauth':
-        cookies = request.cookies if hasattr(request, 'cookies') else {}
         oauth_token = extra_params.get('__oauth_token__', None)
         if oauth_token:
-            headers['Authorization'] = f'Bearer {oauth_token.get("access_token", "")}'
+            headers.update(bearer_auth_header(oauth_token.get('access_token', '')))
     elif auth_type in ('oauth_2.1', 'oauth_2.1_static'):
         try:
             splits = server_id.split(':')
@@ -170,7 +164,7 @@ async def build_tool_server_headers(
                 user.id, f'{connection_type}:{oauth_server_id}'
             )
             if oauth_token:
-                headers['Authorization'] = f'Bearer {oauth_token.get("access_token", "")}'
+                headers.update(bearer_auth_header(oauth_token.get('access_token', '')))
         except Exception as e:
             log.error(f'Error getting OAuth token: {e}')
 
@@ -952,6 +946,32 @@ def clean_openai_tool_schema(spec: dict) -> dict:
     return cleaned_spec
 
 
+def add_terminal_display_file_inline_param(spec: dict) -> dict:
+    spec = copy.deepcopy(spec)
+    if spec.get('name') != 'display_file':
+        return spec
+
+    spec['description'] = (
+        f'{spec.get("description", "")} '
+        'Set inline=true when the file should be shown inline in the chat message instead of opening the file viewer. '
+        'Set page for PDF, DOCX, and PPTX files when you want the preview to open at a specific 1-based page or slide. '
+        'After display_file succeeds, do not display the same file again or emit Markdown for it.'
+    ).strip()
+    parameters = spec.setdefault('parameters', {'type': 'object', 'properties': {}, 'required': []})
+    parameters.setdefault('type', 'object')
+    properties = parameters.setdefault('properties', {})
+    properties['inline'] = {
+        'type': 'boolean',
+        'description': 'Show the file inline in the chat message instead of opening the file viewer.',
+    }
+    properties['page'] = {
+        'type': 'integer',
+        'minimum': 1,
+        'description': 'For PDF, DOCX, and PPTX files, open the preview at this 1-based page or slide number.',
+    }
+    return spec
+
+
 @cache
 def get_builtin_function_introspection(func: Callable):
     try:
@@ -962,14 +982,15 @@ def get_builtin_function_introspection(func: Callable):
 
 
 @cache
-def build_builtin_tool_spec(func: Callable) -> dict:
+def build_builtin_tool_spec_json(func: Callable) -> str:
     pydantic_model = convert_function_to_pydantic_model(func, get_builtin_function_introspection(func))
     spec = convert_pydantic_model_to_openai_function_spec(pydantic_model)
-    return clean_openai_tool_schema(spec)
+    return JSONCodec.dumps(clean_openai_tool_schema(spec))
 
 
 def get_builtin_tool_spec(func: Callable) -> dict:
-    return copy.deepcopy(build_builtin_tool_spec(func))
+    # callers mutate the spec, so parse a fresh copy out of the cached JSON
+    return JSONCodec.loads(build_builtin_tool_spec_json(func))
 
 
 def get_functions_from_tool(tool: object) -> list[Callable]:
@@ -1315,7 +1336,13 @@ async def get_terminal_servers(request: Request):
             data = await request.app.state.redis.get(f'{REDIS_KEY_PREFIX}:terminal_servers')
             if data is not None:
                 terminal_servers = JSONCodec.loads(data)
-                request.app.state.TERMINAL_SERVERS = terminal_servers
+                connections = await Config.get('terminal_server.connections', []) or []
+                if terminal_servers or not any(
+                    connection.get('url') and connection.get('enabled', True) for connection in connections
+                ):
+                    request.app.state.TERMINAL_SERVERS = terminal_servers
+                else:
+                    terminal_servers = None
         except Exception as e:
             log.error(f'Error fetching terminal_servers from Redis: {e}')
 
@@ -1339,7 +1366,10 @@ async def get_terminal_tools(
     - Builds callables that route through the terminal proxy
     """
     connections = await Config.get('terminal_server.connections', []) or []
-    connection = next((c for c in connections if c.get('id') == terminal_id), None)
+    connection = next(
+        (terminal_connection for terminal_connection in connections if terminal_connection.get('id') == terminal_id),
+        None,
+    )
     if connection is None:
         raise RuntimeError(f"Terminal server '{terminal_id}' not found")
     if not connection.get('enabled', True):
@@ -1351,7 +1381,7 @@ async def get_terminal_tools(
 
     # Find the cached spec data for this terminal
     terminal_servers = await get_terminal_servers(request)
-    server_data = next((s for s in terminal_servers if s.get('id') == terminal_id), None)
+    server_data = next((server for server in terminal_servers if server.get('id') == terminal_id), None)
     if server_data is None:
         raise RuntimeError(f"Terminal server '{terminal_id}' is unavailable")
 
@@ -1361,16 +1391,14 @@ async def get_terminal_tools(
 
     # Build auth headers
     auth_type = connection.get('auth_type', 'bearer')
-    cookies = {}
+    cookies = getattr(request, 'cookies', {}) if connection.get('forward_cookies', False) else {}
     headers = {'Content-Type': 'application/json', 'X-User-Id': user.id}
 
     if auth_type == 'bearer':
         headers.update(bearer_auth_header(connection.get('key', '')))
     elif auth_type == 'session':
-        cookies = request.cookies
         headers.update(bearer_auth_header(request.state.token.credentials))
     elif auth_type == 'system_oauth':
-        cookies = request.cookies
         oauth_token = extra_params.get('__oauth_token__', None)
         if oauth_token:
             headers.update(bearer_auth_header(oauth_token.get('access_token', '')))
@@ -1388,11 +1416,7 @@ async def get_terminal_tools(
 
     context_id = terminal_context_id(connection, metadata, terminal_context)
     config = terminal_context_config(connection, terminal_context)
-    if (
-        isinstance(config, dict)
-        and config.get('context_id') in {'chat_id', 'automation_id'}
-        and not context_id
-    ):
+    if isinstance(config, dict) and config.get('context_id') in {'chat_id', 'automation_id'} and not context_id:
         raise RuntimeError(f"Terminal server '{terminal_id}' requires a saved {terminal_context} context")
     if context_id:
         headers[TERMINAL_CONTEXT_HEADER] = context_id
@@ -1408,7 +1432,7 @@ async def get_terminal_tools(
     tools_dict = {}
     for spec in specs:
         function_name = spec['name']
-        tool_spec = clean_openai_tool_schema(spec)
+        tool_spec = clean_openai_tool_schema(add_terminal_display_file_inline_param(spec))
 
         if function_name == 'run_command' and terminal_cwd:
             tool_spec['description'] = (
@@ -1417,12 +1441,15 @@ async def get_terminal_tools(
 
         async def make_tool_function(fn_name, srv_data, hdrs, cks):
             async def tool_function(**kwargs):
+                params = dict(kwargs)
+                if fn_name == 'display_file':
+                    params.pop('page', None)
                 return await execute_tool_server(
                     url=srv_data['url'],
                     headers=hdrs,
                     cookies=cks,
                     name=fn_name,
-                    params=kwargs,
+                    params=params,
                     server_data=srv_data,
                 )
 
@@ -1471,6 +1498,10 @@ async def get_tool_server_data(url: str, headers: dict | None) -> dict[str, Any]
                         # Fall back to YAML for non-.yml URLs that aren't valid JSON
                         res = yaml.safe_load(text_content)
 
+    except (aiohttp.ClientConnectionError, TimeoutError) as err:
+        error = str(err) or type(err).__name__
+        log.error(f'Could not fetch tool server spec from {url}: {error}')
+        raise Exception(error)
     except Exception as err:
         log.exception(f'Could not fetch tool server spec from {url}')
         if isinstance(err, dict) and 'detail' in err:
@@ -1555,7 +1586,9 @@ async def get_tool_servers_data(servers: list[dict[str, Any]]) -> list[dict[str,
         response = {
             'openapi': response,
             'info': response.get('info', {}),
-            'specs': convert_openapi_to_tool_payload(response),
+            'specs': [
+                add_terminal_display_file_inline_param(spec) for spec in convert_openapi_to_tool_payload(response)
+            ],
         }
 
         openapi_data = response.get('openapi', {})
@@ -1631,6 +1664,7 @@ async def execute_tool_server(
         path_params = {}
         query_params = {}
         body_params = {}
+        declared_param_names = set()
 
         # Merge path-level and operation-level parameters for execution.
         path_level_params = methods.get('parameters', [])
@@ -1651,6 +1685,7 @@ async def execute_tool_server(
             param_name = param.get('name')
             if not param_name:
                 continue
+            declared_param_names.add(param_name)
             param_in = param.get('in')
             if param_name in params:
                 if param_in == 'path':
@@ -1670,8 +1705,16 @@ async def execute_tool_server(
         if query_params:
             final_url = f'{final_url}?{urlencode(query_params)}'
 
-        if operation.get('requestBody', {}).get('content'):
-            if params:
+        request_body_content = operation.get('requestBody', {}).get('content')
+        if request_body_content and params:
+            json_schema = request_body_content.get('application/json', {}).get('schema')
+            resolved_body_schema = resolve_schema(json_schema, openapi.get('components', {}))
+            is_composed_schema = any(keyword in resolved_body_schema for keyword in ('allOf', 'anyOf', 'oneOf'))
+            body_properties = {} if is_composed_schema else (resolved_body_schema.get('properties') or {})
+            # Strict servers reject declared parameters in the body, unless the body schema declares them too.
+            if body_properties:
+                body_params = {k: v for k, v in params.items() if k in body_properties or k not in declared_param_names}
+            else:
                 body_params = params
 
         async with aiohttp.ClientSession(

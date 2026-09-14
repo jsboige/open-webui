@@ -6,7 +6,7 @@
 
 	import { toast } from 'svelte-sonner';
 	import { getContext, onMount } from 'svelte';
-	const i18n = getContext('i18n');
+	const i18n = getContext<any>('i18n');
 
 	import Modal from '$lib/components/common/Modal.svelte';
 	import Plus from '$lib/components/icons/Plus.svelte';
@@ -36,7 +36,7 @@
 	export let edit = false;
 
 	export let direct = false;
-	export let connection = null;
+	export let connection: any = null;
 
 	let inputElement = null;
 
@@ -49,6 +49,7 @@
 	let path = 'openapi.json';
 
 	let auth_type = 'bearer';
+	let forwardCookies = false;
 	let key = '';
 	let headers = '';
 
@@ -77,11 +78,15 @@
 		'bg-transparent outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700';
 	const selectClass =
 		'bg-transparent pr-5 outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700';
-	const isMcpOAuth = () => type === 'mcp' && ['oauth_2.1', 'oauth_2.1_static'].includes(auth_type);
+	const oauthAuthTypes = ['oauth_2.1', 'oauth_2.1_static'];
 	const verifyLabel = () =>
-		isMcpOAuth() ? $i18n.t('Check OAuth Discovery') : $i18n.t('Verify Connection');
+		oauthAuthTypes.includes(auth_type)
+			? $i18n.t('Check OAuth Discovery')
+			: $i18n.t('Verify Connection');
 	const verifySuccessMessage = () =>
-		isMcpOAuth() ? $i18n.t('OAuth discovery successful') : $i18n.t('Connection successful');
+		oauthAuthTypes.includes(auth_type)
+			? $i18n.t('OAuth discovery successful')
+			: $i18n.t('Connection successful');
 
 	const authorizeOAuthHandler = () => {
 		if (!id) {
@@ -213,7 +218,7 @@
 					id,
 					name,
 					description,
-					...(isMcpOAuth()
+					...(oauthAuthTypes.includes(auth_type)
 						? {
 								...(oauthServerUrl ? { oauth_server_url: oauthServerUrl } : {}),
 								...(oauthScope ? { oauth_scope: oauthScope } : {}),
@@ -260,6 +265,7 @@
 				if (data.path) path = data.path;
 
 				if (data.auth_type) auth_type = data.auth_type;
+				forwardCookies = data.forward_cookies ?? false;
 				if (data.headers) headers = JSON.stringify(data.headers, null, 2);
 				if (data.key) key = data.key;
 
@@ -296,6 +302,7 @@
 				path,
 
 				auth_type,
+				...(!direct && ['', 'openapi'].includes(type) ? { forward_cookies: forwardCookies } : {}),
 				headers: headers ? JSON.parse(headers) : undefined,
 				key,
 
@@ -335,11 +342,7 @@
 			return;
 		}
 
-		if (
-			type === 'mcp' &&
-			['oauth_2.1', 'oauth_2.1_static'].includes(auth_type) &&
-			!oauthClientInfo
-		) {
+		if (type === 'mcp' && oauthAuthTypes.includes(auth_type) && !oauthClientInfo) {
 			toast.error($i18n.t('Please register the OAuth client'));
 			loading = false;
 			return;
@@ -380,6 +383,7 @@
 			path,
 
 			auth_type,
+			...(!direct && ['', 'openapi'].includes(type) ? { forward_cookies: forwardCookies } : {}),
 			headers: headers ? JSON.parse(headers) : undefined,
 
 			key,
@@ -392,7 +396,7 @@
 				id: id,
 				name: name,
 				description: description,
-				...(type === 'mcp' && ['oauth_2.1', 'oauth_2.1_static'].includes(auth_type)
+				...(type === 'mcp' && oauthAuthTypes.includes(auth_type)
 					? {
 							...(oauthScope ? { oauth_scope: oauthScope } : {}),
 							oauth_resource_parameter: oauthResourceParameter
@@ -424,6 +428,7 @@
 
 		key = '';
 		auth_type = 'bearer';
+		forwardCookies = false;
 
 		id = '';
 		name = '';
@@ -442,6 +447,7 @@
 	};
 
 	const init = () => {
+		forwardCookies = connection?.forward_cookies ?? false;
 		if (connection) {
 			type = connection?.type ?? 'openapi';
 			url = connection.url;
@@ -684,7 +690,7 @@
 										</div>
 									</div>
 
-									{#if isMcpOAuth()}
+									{#if oauthAuthTypes.includes(auth_type)}
 										<div class="flex items-center gap-2">
 											{#if oauthClientInfo}
 												<div class="flex flex-col justify-end items-center shrink-0">
@@ -848,6 +854,24 @@
 						</div>
 
 						{#if showAdvanced}
+							{#if !direct && ['', 'openapi'].includes(type)}
+								<div class="flex items-center justify-between gap-3 mt-2">
+									<div>
+										<label for="forward-cookies" class="text-xs text-gray-500">
+											{$i18n.t('Forward cookies')}
+										</label>
+										<p class="text-xs text-gray-500">
+											{$i18n.t('Forward cookies from your Open WebUI request to this server.')}
+										</p>
+									</div>
+									<Switch
+										id="forward-cookies"
+										ariaLabel={$i18n.t('Forward cookies')}
+										bind:state={forwardCookies}
+									/>
+								</div>
+							{/if}
+
 							{#if ['', 'openapi'].includes(type)}
 								<div class="flex gap-2 mt-2">
 									<div class="flex flex-col w-full">
@@ -916,7 +940,7 @@
 								</div>
 							{/if}
 
-							{#if type === 'mcp' && ['oauth_2.1', 'oauth_2.1_static'].includes(auth_type)}
+							{#if type === 'mcp' && oauthAuthTypes.includes(auth_type)}
 								<div class="flex gap-2 mt-2">
 									<div class="flex flex-col w-full">
 										<label for="oauth-scope" class={`mb-0.5 text-xs text-gray-500`}
