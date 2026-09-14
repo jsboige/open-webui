@@ -508,7 +508,15 @@ class FAQBot(ChannelBot):
     def _extract_chunks(results) -> list[str]:
         """Extract text chunks from RAG query results."""
         chunks = []
-        if isinstance(results, list):
+        if isinstance(results, dict) and "documents" in results:
+            # /retrieval/query/collection returns a chroma-style dict:
+            # {"distances": [[...]], "documents": [[...]], "metadatas": [[...]]}
+            for docs in results.get("documents") or []:
+                for doc in docs:
+                    text = doc if isinstance(doc, str) else doc.get("content", doc.get("text", ""))
+                    if text:
+                        chunks.append(str(text)[:1000])
+        elif isinstance(results, list):
             for item in results:
                 if isinstance(item, dict):
                     # Format: {collection_name, documents: [{...}]} or flat {content, ...}
