@@ -223,11 +223,9 @@ class OWUIClient:
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                # Response structure: list of {collection_name, documents[{...}]}
-                # or flat list of document dicts depending on version
-                if isinstance(data, list):
-                    return data
-                return data.get("documents", data.get("results", []))
+                # v0.11 returns a chroma-style dict; older versions returned lists.
+                # _extract_chunks handles both shapes.
+                return data
             else:
                 text = await resp.text()
                 log.error("RAG query failed: %s - %s", resp.status, text[:200])
