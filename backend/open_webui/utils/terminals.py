@@ -1,7 +1,12 @@
 """Shared routing helpers for admin-configured terminal servers."""
 
+import asyncio
+import logging
+import ntpath
+import posixpath
 from urllib.parse import quote
 
+from open_webui.env import ENABLE_TOOL_SERVERS
 from open_webui.utils.chat_id import is_saved_chat_id
 
 TERMINAL_CONTEXT_HEADER = 'X-Terminal-Context-Id'
@@ -9,6 +14,9 @@ TERMINAL_CONTEXT_DEFAULT = 'default'
 TERMINAL_CONTEXT_TYPES = {'chat', 'automation'}
 TERMINAL_CONTEXT_ID_SOURCES = {'chat': 'chat_id', 'automation': 'automation_id'}
 TERMINAL_CHAT_UPLOAD_MODES = {'default', 'filesystem'}
+MAX_AGENTS_MD_BYTES = 32 * 1024
+
+log = logging.getLogger(__name__)
 
 
 def is_terminal_orchestrator(connection: dict) -> bool:
@@ -113,12 +121,17 @@ def terminal_chat_uploads(connection: dict) -> str:
     return value if value in TERMINAL_CHAT_UPLOAD_MODES else 'default'
 
 
-async def get_terminal_request_info(request, user, metadata: dict, extra_params: dict | None = None):
+async def get_terminal_json(request, user, metadata: dict, path: str, extra_params: dict | None = None):
+    """Read from an admin terminal on the backend or a personal terminal in its browser."""
+    if not ENABLE_TOOL_SERVERS:
+        return None
+
+    import aiohttp
+    from open_webui.env import AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL, AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA
     from open_webui.models.config import Config
     from open_webui.models.groups import Groups
     from open_webui.models.users import UserModel
     from open_webui.utils.access_control import has_connection_access
-    from open_webui.utils.headers import bearer_auth_header
     from open_webui.utils.tools import build_tool_server_headers
 
     metadata = metadata or {}
@@ -131,9 +144,18 @@ async def get_terminal_request_info(request, user, metadata: dict, extra_params:
     connection = next((item for item in connections if item.get('id') == terminal_id), None)
 
     if connection:
-        if not connection.get('enabled', True):
+        terminal_context = 'automation' if metadata.get('automation_id') else 'chat'
+        context_id = terminal_context_id(connection, metadata, terminal_context)
+        config = terminal_context_config(connection, terminal_context)
+        if (
+            not connection.get('enabled', True)
+            or not terminal_context_available(connection, terminal_context)
+            or (config.get('context_id') in {'chat_id', 'automation_id'} and not context_id)
+        ):
             return None
-        user_group_ids = {group.id for group in await Groups.get_groups_by_member_id(user_model.id)}
+        user_group_ids = {
+            group.id for group in await Groups.get_groups_by_member_id(user_model.id, include_inherited=True)
+        }
         if not await has_connection_access(user_model, connection, user_group_ids):
             return None
 
@@ -148,49 +170,68 @@ async def get_terminal_request_info(request, user, metadata: dict, extra_params:
         headers['X-User-Id'] = user_model.id
         if metadata.get('chat_id'):
             headers['X-Session-Id'] = metadata['chat_id']
-        terminal_context = 'automation' if metadata.get('automation_id') else 'chat'
-        context_id = terminal_context_id(connection, metadata, terminal_context)
         if context_id:
             headers[TERMINAL_CONTEXT_HEADER] = context_id
-        return get_terminal_server_url(connection), headers, cookies
+        timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA)
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+            async with session.get(
+                f'{get_terminal_server_url(connection)}{path}',
+                headers=headers,
+                cookies=cookies,
+                ssl=AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL,
+                allow_redirects=False,
+            ) as response:
+                return await response.json() if response.status == 200 else None
 
-    selector = str(terminal_id).rstrip('/')
-    direct_terminal = next(
-        (server for server in metadata.get('tool_servers') or [] if str(server.get('url') or '').rstrip('/') == selector),
-        None,
+    event_caller = (extra_params or {}).get('__event_call__')
+    if event_caller:
+        result = await event_caller(
+            {
+                'type': 'request:terminal',
+                'data': {'terminal_id': terminal_id, 'path': path, 'session_id': metadata.get('session_id')},
+            }
+        )
+        return result.get('data') if isinstance(result, dict) else None
+    return None
+
+
+async def get_terminal_agents_md(request, user, metadata: dict, extra_params: dict | None = None) -> str | None:
+    """Load the selected terminal user's home AGENTS.md afresh for this turn."""
+    try:
+        async with asyncio.timeout(5):
+            data = await get_terminal_json(request, user, metadata, '/files/cwd', extra_params)
+            home = data.get('home') if isinstance(data, dict) else None
+            if not isinstance(home, str) or not (posixpath.isabs(home) or ntpath.isabs(home)):
+                return None
+            path = quote(posixpath.join(home, 'AGENTS.md'), safe='')
+            data = await get_terminal_json(request, user, metadata, f'/files/read?path={path}', extra_params)
+
+        content = data.get('content') if isinstance(data, dict) else None
+        if not isinstance(content, str) or not content.strip():
+            return None
+        if len(content.encode('utf-8')) > MAX_AGENTS_MD_BYTES:
+            log.warning('Skipping terminal AGENTS.md: exceeds %s bytes', MAX_AGENTS_MD_BYTES)
+            return None
+        return f'# AGENTS.md\n\n{content}'
+    except Exception as e:
+        log.debug('Failed to load terminal AGENTS.md (%s)', type(e).__name__)
+        return None
+
+
+def add_terminal_agents_md(messages: list[dict], agents_md: str) -> list[dict]:
+    """Place file instructions before user requests without changing their content."""
+    for index, message in enumerate(messages):
+        if message.get('role') == 'user':
+            return [*messages[:index], {'role': 'user', 'content': agents_md}, *messages[index:]]
+    return messages
+
+
+async def get_terminal_skill(
+    request, user, metadata: dict, skill_name: str, extra_params: dict | None = None
+) -> dict | None:
+    skill = await get_terminal_json(
+        request, user, metadata, f'/skills/read?name={quote(skill_name, safe="")}', extra_params
     )
-    if not direct_terminal:
-        return None
-
-    headers = {'Accept': 'application/json'}
-    key = str(direct_terminal.get('key') or '').strip()
-    if key:
-        headers.update(bearer_auth_header(key))
-    if metadata.get('chat_id'):
-        headers['X-Session-Id'] = metadata['chat_id']
-    return selector, headers, {}
-
-
-async def get_terminal_skill(request, user, metadata: dict, skill_name: str, extra_params: dict | None = None) -> dict | None:
-    import aiohttp
-    from urllib.parse import quote
-
-    from open_webui.env import AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL, AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA
-
-    terminal_request = await get_terminal_request_info(request, user, metadata, extra_params)
-    if not terminal_request:
-        return None
-    base_url, headers, cookies = terminal_request
-
-    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA)
-    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-        async with session.get(
-            f'{base_url.rstrip("/")}/skills/{quote(skill_name, safe="")}',
-            headers=headers,
-            cookies=cookies,
-            ssl=AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL,
-        ) as response:
-            skill = await response.json() if response.status == 200 else None
 
     if not isinstance(skill, dict):
         return None

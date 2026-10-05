@@ -71,7 +71,7 @@
 			if (type === 'message') {
 				if ((data?.parent_id ?? null) === threadId) {
 					if (messages) {
-						messages = [data, ...messages];
+						messages = [{ ...data, temp_id: null }, ...messages];
 
 						if (typingUsers.find((user) => user.id === event.user.id)) {
 							typingUsers = typingUsers.filter((user) => user.id !== event.user.id);
@@ -92,7 +92,17 @@
 				}
 
 				if (messages) {
-					messages = messages.filter((message) => message.id !== data.id);
+					messages = messages
+						.filter((message) => message.id !== data.id)
+						.map((message) =>
+							message?.reply_to_message?.id === data.id
+								? { ...message, reply_to_message: null }
+								: message
+						);
+				}
+
+				if (replyToMessage?.id === data.id) {
+					replyToMessage = null;
 				}
 			} else if (type.includes('message:reaction')) {
 				if (messages) {
@@ -131,22 +141,32 @@
 		}
 	};
 
-	const submitHandler = async ({ content, data }) => {
+	const submitHandler = async ({
+		content,
+		data,
+		channel_id,
+		parent_id,
+		reply_to_message
+	}: {
+		content: string;
+		data: any;
+		channel_id: string;
+		parent_id: string | null;
+		reply_to_message: any;
+	}) => {
 		if (!content && (data?.files ?? []).length === 0) {
 			return;
 		}
 
-		const res = await sendMessage(localStorage.token, channel.id, {
-			parent_id: threadId,
-			reply_to_id: replyToMessage?.id ?? null,
+		const res = await sendMessage(localStorage.token, channel_id, {
+			parent_id: parent_id ?? undefined,
+			reply_to_id: reply_to_message?.id ?? null,
 			content: content,
 			data: data
 		}).catch((error) => {
 			toast.error(`${error}`);
 			return null;
 		});
-
-		replyToMessage = null;
 	};
 
 	const onChange = async () => {

@@ -8,7 +8,7 @@
 
 	import { marked } from 'marked';
 	import { toast } from 'svelte-sonner';
-	import equal from 'fast-deep-equal';
+	import { equalEditorJSON } from '$lib/utils/editorJson';
 
 	import { goto, onNavigate } from '$app/navigation';
 
@@ -21,7 +21,13 @@
 	dayjs.extend(duration);
 	dayjs.extend(relativeTime);
 
-	import { compressImage, copyToClipboard, convertHeicToJpeg } from '$lib/utils';
+	import {
+		resolveDefaultModelIds,
+		compressImage,
+		copyToClipboard,
+		convertHeicToJpeg,
+		isHeicImage
+	} from '$lib/utils';
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { getFileById, uploadFile } from '$lib/apis/files';
 	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
@@ -212,8 +218,7 @@
 			title: note?.title === '' ? $i18n.t('Untitled') : note.title,
 			data: {
 				files: files
-			},
-			access_grants: note?.access_grants ?? []
+			}
 		}).catch((e) => {
 			toast.error(`${e}`);
 		});
@@ -341,7 +346,7 @@
 	}
 
 	function areContentsEqual(a, b) {
-		return equal(a, b);
+		return equalEditorJSON(a, b);
 	}
 
 	function insertNoteVersion(note) {
@@ -628,7 +633,7 @@ ${content}
 			return;
 		}
 
-		if (file['type'].startsWith('image/')) {
+		if (file['type'].startsWith('image/') || isHeicImage(file)) {
 			const uploadImagePromise = new Promise(async (resolve, reject) => {
 				let reader = new FileReader();
 				reader.onload = async (event) => {
@@ -655,7 +660,7 @@ ${content}
 					}
 				};
 
-				reader.readAsDataURL(file['type'] === 'image/heic' ? await convertHeicToJpeg(file) : file);
+				reader.readAsDataURL(isHeicImage(file) ? await convertHeicToJpeg(file) : file);
 			});
 
 			return await uploadImagePromise;
@@ -931,28 +936,9 @@ ${content}
 	onMount(async () => {
 		await tick();
 
-		if ($settings?.models) {
-			selectedModelId = $settings?.models[0];
-		} else if ($config?.default_models) {
-			selectedModelId = $config?.default_models.split(',')[0];
-		} else {
-			selectedModelId = '';
-		}
-
-		if (selectedModelId) {
-			const model = $models
-				.filter((model) => model.id === selectedModelId && !(model?.info?.meta?.hidden ?? false))
-				.find((model) => model.id === selectedModelId);
-
-			if (!model) {
-				selectedModelId = '';
-			}
-		}
-
-		if (!selectedModelId) {
-			selectedModelId =
-				$models.filter((model) => !(model?.info?.meta?.hidden ?? false)).at(0)?.id || '';
-		}
+		selectedModelId =
+			resolveDefaultModelIds($models, $settings?.models, $config?.default_models?.split(','))[0] ??
+			'';
 
 		const dropzoneElement = document.getElementById('note-editor');
 
@@ -997,6 +983,8 @@ ${content}
 		share={$user?.permissions?.sharing?.notes || $user?.role === 'admin'}
 		sharePublic={$user?.permissions?.sharing?.public_notes || $user?.role === 'admin'}
 		shareUsers={($user?.permissions?.access_grants?.allow_users ?? true) || $user?.role === 'admin'}
+		allowGroups={($user?.permissions?.access_grants?.allow_groups ?? true) ||
+			$user?.role === 'admin'}
 		onChange={async () => {
 			if (id) {
 				try {
@@ -1506,7 +1494,7 @@ ${content}
 				embeddedDraftKey={noteChatDraftKey}
 				suggestedPrompts={noteChatSuggestedPrompts}
 				selectedText={selectedContent?.text ?? ''}
-				onInsertToNote={insertHandler}
+				onInsertToNote={note?.write_access ? insertHandler : null}
 				onNewEmbeddedChat={createNoteChat}
 				onCreateEmbeddedChat={createNoteChatOnFirstMessage}
 				onSelectEmbeddedChat={(chatId) => {

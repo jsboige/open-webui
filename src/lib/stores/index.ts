@@ -124,6 +124,19 @@ export const chatRequestQueues: Writable<
 	Record<string, { id: string; prompt: string; files: any[] }[]>
 > = writable({});
 
+export type ChannelQueuedMessage = {
+	id: string;
+	prompt: string;
+	files: any[];
+	user_id: string;
+	channel_id: string;
+	parent_id: string | null;
+	reply_to_message: any;
+	sending?: boolean;
+	error?: string;
+};
+export const channelRequestQueues = writable<Record<string, ChannelQueuedMessage[]>>({});
+
 export const sidebarWidth = writable(245);
 
 export type SettingsModalRequest = {
@@ -146,6 +159,9 @@ export type FileNavOpenRequest = string | { path: string; page?: number | null }
 export const showFileNavPath: Writable<FileNavOpenRequest | null> = writable(null);
 export const showFileNavDir: Writable<string | null> = writable(null);
 export const selectedTerminalId: Writable<string | null> = writable(null);
+export const connectedUserTerminals = writable(
+	new Map<symbol, { terminalId: string; chatId: string }>()
+);
 
 export const artifactCode = writable(null);
 export const artifactContents = writable(null);
@@ -247,7 +263,7 @@ type Settings = {
 	autoTags?: boolean;
 	autoFollowUps?: boolean;
 	splitLargeChunks?(body: any, splitLargeChunks: any): unknown;
-	backgroundImageUrl?: null;
+	backgroundImageUrl?: string | null;
 	landingPageMode?: string;
 	iframeSandboxAllowScripts?: boolean;
 	iframeSandboxAllowForms?: boolean;
@@ -334,7 +350,7 @@ type Config = {
 	i18n?: I18nOverrides;
 	default_models: string;
 	default_pinned_models?: string | null;
-	default_prompt_suggestions: PromptSuggestion[];
+	default_prompt_suggestions: PromptSuggestion[] | null;
 	default_prompt_suggestions_i18n?: Record<string, { suggestion_prompts: PromptSuggestion[] }>;
 	features: {
 		slim?: boolean;
@@ -357,8 +373,12 @@ type Config = {
 		enable_community_sharing: boolean;
 		enable_memories: boolean;
 		enable_plugins?: boolean;
+		enable_tools?: boolean;
+		enable_functions?: boolean;
+		enable_tool_servers?: boolean;
 		enable_autocomplete_generation: boolean;
 		enable_direct_connections: boolean;
+		enable_direct_integrations?: boolean;
 		enable_version_update_check: boolean;
 		enable_pyodide_file_persistence?: boolean;
 		folder_max_file_count?: number;

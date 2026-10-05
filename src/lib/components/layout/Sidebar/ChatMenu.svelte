@@ -43,8 +43,8 @@
 	export let markUnreadHandler: Function = () => {};
 
 	export let chatId = '';
+	export let archived = false;
 
-	let dropdown: Dropdown;
 	let show = false;
 	let pinned = false;
 
@@ -291,7 +291,7 @@
 {/if}
 
 <Dropdown
-	bind:this={dropdown}
+	closeOnSelect
 	bind:show
 	onOpenChange={(state) => {
 		if (state) {
@@ -367,7 +367,6 @@
 				draggable="false"
 				class="flex h-[1.6875rem] gap-2 items-center rounded-xl px-2 text-[0.8125rem] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-900 w-full"
 				on:click={() => {
-					dropdown.close();
 					renameHandler();
 				}}
 			>
@@ -379,7 +378,6 @@
 				draggable="false"
 				class="flex h-[1.6875rem] gap-2 items-center rounded-xl px-2 text-[0.8125rem] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-900 w-full"
 				on:click={() => {
-					dropdown.close();
 					markUnreadHandler();
 				}}
 			>
@@ -393,7 +391,6 @@
 				draggable="false"
 				class="flex h-[1.6875rem] gap-2 items-center rounded-xl px-2 text-[0.8125rem] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-900 w-full"
 				on:click={() => {
-					dropdown.close();
 					pinHandler();
 				}}
 			>
@@ -411,7 +408,6 @@
 					draggable="false"
 					class="flex h-[1.6875rem] gap-2 items-center rounded-xl px-2 text-[0.8125rem] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-900 w-full"
 					on:click={() => {
-						dropdown.close();
 						cloneChatHandler();
 					}}
 				>
@@ -457,7 +453,9 @@
 				}}
 			>
 				<ArchiveBoxIcon className="size-3.5" strokeWidth="1.7" />
-				<div class="flex items-center">{$i18n.t('Archive')}</div>
+				<div class="flex items-center">
+					{archived ? $i18n.t('Unarchive') : $i18n.t('Archive')}
+				</div>
 			</button>
 
 			{#if $user?.role === 'admin' || ($user?.permissions?.chat?.delete ?? true)}

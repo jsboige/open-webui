@@ -8,7 +8,7 @@ from typing import Literal, Optional
 from open_webui.env import DATABASE_USER_ACTIVE_STATUS_UPDATE_INTERVAL
 from open_webui.internal.db import Base, JSONField, get_async_db_context
 from open_webui.utils.misc import throttle
-from open_webui.utils.validate import validate_profile_image_url
+from open_webui.utils.validate import validate_image_url
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -277,7 +277,7 @@ class UpdateProfileForm(BaseModel):
     @field_validator('profile_image_url')
     @classmethod
     def check_profile_image_url(cls, v: str) -> str:
-        return validate_profile_image_url(v)
+        return validate_image_url(v)
 
 
 class UserGroupIdsModel(UserModel):
@@ -367,7 +367,7 @@ class UserUpdateForm(BaseModel):
     def check_profile_image_url(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        return validate_profile_image_url(v)
+        return validate_image_url(v)
 
 
 class UsersTable:
@@ -383,7 +383,7 @@ class UsersTable:
         db: AsyncSession | None = None,
     ) -> UserModel | None:
         try:
-            profile_image_url = validate_profile_image_url(profile_image_url)
+            profile_image_url = validate_image_url(profile_image_url)
         except ValueError:
             profile_image_url = '/user.png'
 
@@ -549,7 +549,7 @@ class UsersTable:
         async with get_async_db_context(db) as session:
             # Deferred imports to avoid circular dependencies
             from open_webui.models.channels import ChannelMember
-            from open_webui.models.groups import GroupMember
+            from open_webui.models.groups import GroupMember, group_user_memberships
 
             # Join GroupMember so we can order by group_id when requested
             stmt = select(User)
@@ -587,14 +587,8 @@ class UsersTable:
                     stmt = stmt.filter(User.id.in_(user_ids))
 
                 if group_ids:
-                    stmt = stmt.filter(
-                        exists(
-                            select(GroupMember.id).where(
-                                GroupMember.user_id == User.id,
-                                GroupMember.group_id.in_(group_ids),
-                            )
-                        )
-                    )
+                    memberships = group_user_memberships(group_ids, True)
+                    stmt = stmt.filter(User.id.in_(select(memberships.c.user_id)))
 
                 roles = filter.get('roles')
                 if roles:
@@ -754,7 +748,7 @@ class UsersTable:
         db: AsyncSession | None = None,
     ) -> UserModel | None:
         try:
-            profile_image_url = validate_profile_image_url(profile_image_url)
+            profile_image_url = validate_image_url(profile_image_url)
         except ValueError:
             profile_image_url = '/user.png'
 
@@ -803,7 +797,9 @@ class UsersTable:
                 return None
             scim = dict(user.scim or {})
             scim[provider] = {'external_id': external_id}
-            user.scim = scim
+            if scim != user.scim:
+                user.scim = scim
+                user.updated_at = int(time.time())
             await session.commit()
             return UserModel.model_validate(user)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -10,7 +11,12 @@ import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL, CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.env import AIOHTTP_CLIENT_SESSION_SSL, AIOHTTP_CLIENT_TIMEOUT, ENABLE_PLUGINS
+from open_webui.env import (
+    AIOHTTP_CLIENT_SESSION_SSL,
+    AIOHTTP_CLIENT_TIMEOUT,
+    ENABLE_TOOL_SERVERS,
+    ENABLE_TOOLS,
+)
 from open_webui.events import EVENTS, publish_event
 from open_webui.internal.db import get_async_session
 from open_webui.models.access_grants import AccessGrants
@@ -27,19 +33,20 @@ from open_webui.models.tools import (
 )
 from open_webui.utils.access_control import (
     filter_allowed_access_grants,
-    has_access,
+    has_connection_access,
     has_permission,
 )
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.plugin import (
     get_tool_contents_cache,
-    get_tools_cache,
     get_tool_module_from_cache,
+    get_tools_cache,
     load_tool_module_by_id,
     replace_imports,
     resolve_valves_schema_options,
 )
-from open_webui.utils.tools import get_tool_servers, get_tool_specs
+from open_webui.utils.tools import connect_mcp_server, get_tool_servers
+from open_webui.utils.tools import get_tool_specs as get_local_tool_specs
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,11 +81,13 @@ async def get_tools(
     tools = []
     bypass_access_control = user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL
     user_group_ids = (
-        set() if bypass_access_control else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
+        set()
+        if bypass_access_control
+        else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db, include_inherited=True)}
     )
 
     # Local Tools
-    if ENABLE_PLUGINS:
+    if ENABLE_TOOLS:
         tools_cache = get_tools_cache(request)
         for tool in await Tools.get_tools(
             defer_content=True,
@@ -102,7 +111,7 @@ async def get_tools(
             )
 
     # OpenAPI Tool Servers
-    server_access_grants = {}
+    server_connections = {}
     for server in await get_tool_servers(request):
         server_idx = server.get('idx', 0)
         connections = await Config.get('tool_server.connections', [])
@@ -113,10 +122,8 @@ async def get_tools(
             )
             continue
         connection = connections[server_idx]
-        server_config = connection.get('config', {})
-
         server_id = f'server:{server.get("id")}'
-        server_access_grants[server_id] = server_config.get('access_grants', [])
+        server_connections[server_id] = connection
 
         tools.append(
             ToolUserResponse(
@@ -134,7 +141,7 @@ async def get_tools(
         )
 
     # MCP Tool Servers
-    for server in await Config.get('tool_server.connections', []):
+    for server in (await Config.get('tool_server.connections', [])) if ENABLE_TOOL_SERVERS else []:
         if server.get('type', 'openapi') == 'mcp' and (server.get('config') or {}).get('enable'):
             info = server.get('info') or {}
             server_id = info.get('id')
@@ -149,10 +156,8 @@ async def get_tools(
                     user.id, f'mcp:{server_id}'
                 )
 
-            server_config = server.get('config') or {}
-
             tool_id = f'server:mcp:{info.get("id")}'
-            server_access_grants[tool_id] = server_config.get('access_grants', [])
+            server_connections[tool_id] = server
 
             tools.append(
                 ToolUserResponse(
@@ -181,12 +186,10 @@ async def get_tools(
             tool
             for tool in tools
             if not str(tool.id).startswith('server:')
-            or await has_access(
-                user.id,
-                'read',
-                server_access_grants.get(str(tool.id), []),
+            or await has_connection_access(
+                user,
+                server_connections[str(tool.id)],
                 user_group_ids,
-                db=db,
             )
         ]
 
@@ -197,6 +200,32 @@ async def get_tools(
     return tools
 
 
+@router.get('/id/{id}/specs')
+async def get_tool_specs(request: Request, id: str, user=Depends(get_verified_user)):
+    """Discover tools for an accessible connection. Currently supports MCP."""
+    if not id.startswith('server:mcp:'):
+        raise HTTPException(status_code=404, detail='Tool not found')
+
+    try:
+        # Keep connect, discovery and cleanup in one task for the MCP transport.
+        async with asyncio.timeout(15):
+            result = await connect_mcp_server(request, id.removeprefix('server:mcp:'), user, {}, {})
+            if result is None:
+                raise HTTPException(status_code=404, detail='Tool not found')
+            client, specs = result
+            try:
+                return {'specs': [{'name': spec['name'], 'description': spec.get('description', '')} for spec in specs]}
+            finally:
+                await client.disconnect()
+    except HTTPException:
+        raise
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail='Tool discovery timed out')
+    except Exception:
+        log.exception('Failed to discover tool specs')
+        raise HTTPException(status_code=502, detail='Unable to load tools')
+
+
 ############################
 # GetToolList
 ############################
@@ -204,12 +233,14 @@ async def get_tools(
 
 @router.get('/list', response_model=list[ToolAccessResponse])
 async def get_tool_list(user=Depends(get_verified_user), db: AsyncSession = Depends(get_async_session)):
-    if not ENABLE_PLUGINS:
+    if not ENABLE_TOOLS:
         return []
 
     bypass_access_control = user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL
     user_group_ids = (
-        set() if bypass_access_control else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
+        set()
+        if bypass_access_control
+        else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db, include_inherited=True)}
     )
     tools = await Tools.get_tools(
         defer_content=True,
@@ -398,7 +429,7 @@ async def create_new_tools(
             TOOLS = get_tools_cache(request)
             TOOLS[form_data.id] = tool_module
 
-            specs = get_tool_specs(TOOLS[form_data.id])
+            specs = get_local_tool_specs(TOOLS[form_data.id])
             tools = await Tools.insert_new_tool(user.id, form_data, specs, db=db)
 
             tool_cache_dir = CACHE_DIR / 'tools' / form_data.id
@@ -540,7 +571,7 @@ async def update_tools_by_id(
         TOOLS = get_tools_cache(request)
         TOOLS[id] = tool_module
 
-        specs = get_tool_specs(TOOLS[id])
+        specs = get_local_tool_specs(TOOLS[id])
 
         form_data.access_grants = await filter_allowed_access_grants(
             await Config.get('user.permissions'),

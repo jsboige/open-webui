@@ -307,6 +307,12 @@ _DROPPED_RESPONSE_HEADERS = {'connection', 'content-encoding', 'content-length',
 # The Playwright loader only reads the page HTML, which none of these feed.
 _DROPPED_RESOURCE_TYPES = {'font', 'image', 'media'}
 
+# unstructured keeps only the first <main>, so text in any others would be dropped.
+_UNWRAP_EXTRA_MAINS = (
+    '() => { const mains = document.querySelectorAll("main"); '
+    'if (mains.length > 1) mains.forEach(main => main.replaceWith(...main.childNodes)); }'
+)
+
 
 def _forwardable_request_headers(headers: Dict[str, str]) -> Dict[str, str]:
     return {name: value for name, value in headers.items() if name.lower() not in _DROPPED_REQUEST_HEADERS}
@@ -868,7 +874,8 @@ class SafePlaywrightURLLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
                             browser.new_page(service_workers='block') as page,
                         ):
                             page.route('**/*', lambda route: self._intercept_navigation_sync(route, session))
-                            page.route_web_socket('**/*', lambda ws_route: ws_route.close())
+                            # sync close() hangs the dispatcher; a no-op handler still never connects to the server
+                            page.route_web_socket('**/*', lambda ws_route: None)
                             response = page.goto(url, timeout=self.playwright_timeout)
                             if response is None:
                                 raise ValueError(f'page.goto() returned None for url {url}')
@@ -877,6 +884,7 @@ class SafePlaywrightURLLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
                                 for element in page.locator(selector).all():
                                     if element.is_visible():
                                         element.evaluate('element => element.remove()')
+                            page.evaluate(_UNWRAP_EXTRA_MAINS)
                             text = self._extract_html(page.content())
                             page.unroute_all(behavior='ignoreErrors')
                             metadata = {'source': url}
@@ -917,6 +925,7 @@ class SafePlaywrightURLLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
                                 for element in await page.locator(selector).all():
                                     if await element.is_visible():
                                         await element.evaluate('element => element.remove()')
+                            await page.evaluate(_UNWRAP_EXTRA_MAINS)
                             text = await asyncio.to_thread(self._extract_html, await page.content())
                             await page.unroute_all(behavior='ignoreErrors')
                             metadata = {'source': url}

@@ -91,6 +91,7 @@ known_source_ext = [
     'yaml',
     'yml',
     'toml',
+    'svg',
 ]
 
 known_archive_ext = {'docx', 'epub', 'odt', 'pptx', 'xlsx'}
@@ -272,7 +273,7 @@ class DoclingLoader:
                 f'{self.url}/v1/convert/file',
                 files={
                     'files': (
-                        self.file_path,
+                        os.path.basename(self.file_path),
                         f,
                         self.mime_type or 'application/octet-stream',
                     )
@@ -290,8 +291,17 @@ class DoclingLoader:
             )
         if r.ok:
             result = r.json()
+            # Docling reports failed and skipped conversions inside HTTP 200 responses.
+            conversion_status = result.get('status')
+            if conversion_status in ['failure', 'skipped']:
+                error_details = (
+                    '; '.join(filter(None, (error.get('error_message') for error in result.get('errors', []))))
+                    or 'no error message provided'
+                )
+                raise Exception(f'Error calling Docling: conversion status {conversion_status} - {error_details}')
+
             document_data = result.get('document', {})
-            md_content = document_data.get('md_content', '')
+            md_content = document_data.get('md_content') or ''
             text = md_content or '<No text content found>'
 
             metadata = {'Content-Type': self.mime_type} if self.mime_type else {}
@@ -332,7 +342,12 @@ class Loader:
         docs = loader.load()
         # ftfy's auto mode unescapes entities on every line before the first literal '<', rewriting the document.
         return [
-            Document(page_content=ftfy.fix_text(doc.page_content, unescape_html=False), metadata=doc.metadata)
+            Document(
+                page_content=ftfy.fix_text(
+                    doc.page_content, unescape_html=False, fix_character_width=False, uncurl_quotes=False
+                ),
+                metadata=doc.metadata,
+            )
             for doc in docs
         ]
 
@@ -417,15 +432,17 @@ class Loader:
             'gbk': 'gb18030',
             'big5': 'big5',
             'euckr': 'euc-kr',
+            'cp949': 'cp949',
             'eucjp': 'euc-jp',
             'iso2022jp': 'euc-jp',
-            'shiftjis': 'shift_jis',
+            'shiftjis': 'cp932',
+            'cp932': 'cp932',
         }
 
         # Build priority list: chardet-hinted codec first, then remaining CJK
         base_order = ['gb18030', 'big5', 'euc-kr', 'euc-jp']
         hinted = _ENC_FAMILY.get(detected_enc)
-        if hinted and hinted in base_order:
+        if hinted:
             ordered = [hinted] + [e for e in base_order if e != hinted]
         else:
             ordered = base_order
@@ -733,7 +750,7 @@ class Loader:
                     )
                     loader = TextLoader(file_path, encoding=self._detect_text_encoding(file_path))
             elif file_ext in ['htm', 'html']:
-                loader = HTMLLoader(file_path, encoding='unicode_escape')
+                loader = HTMLLoader(file_path, encoding=self._detect_text_encoding(file_path))
             elif file_ext == 'md':
                 loader = TextLoader(file_path, encoding=self._detect_text_encoding(file_path))
             elif file_content_type == 'application/epub+zip':

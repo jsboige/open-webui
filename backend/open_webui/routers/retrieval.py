@@ -59,6 +59,7 @@ from open_webui.env import (
     SENTENCE_TRANSFORMERS_CROSS_ENCODER_SIGMOID_ACTIVATION_FUNCTION,
     SENTENCE_TRANSFORMERS_MODEL_KWARGS,
     USE_SLIM,
+    USER_AGENT,
 )
 from open_webui.events import EVENTS, publish_event
 from open_webui.internal.db import get_async_db, get_async_session
@@ -115,6 +116,7 @@ from open_webui.retrieval.web.serphouse import search_serphouse
 from open_webui.retrieval.web.serply import search_serply
 from open_webui.retrieval.web.serpstack import search_serpstack
 from open_webui.retrieval.web.sougou import search_sougou
+from open_webui.retrieval.web.staan import search_staan
 from open_webui.retrieval.web.tavily import search_tavily
 from open_webui.retrieval.web.utils import get_web_loader
 from open_webui.retrieval.web.yacy import search_yacy
@@ -380,8 +382,12 @@ RETRIEVAL_CONFIG_KEYS = {
     'SERPSTACK_HTTPS': 'web.search.serpstack_https',
     'SOUGOU_API_SID': 'web.search.sougou_api_sid',
     'SOUGOU_API_SK': 'web.search.sougou_api_sk',
+    'STAAN_API_KEY': 'web.search.staan_api_key',
+    'STAAN_MARKET': 'web.search.staan_market',
+    'STAAN_MAX_SNIPPETS': 'web.search.staan_max_snippets',
     'TAVILY_API_KEY': 'web.search.tavily_api_key',
     'TAVILY_EXTRACT_DEPTH': 'web.search.tavily_extract_depth',
+    'TAVILY_SEARCH_DEPTH': 'web.search.tavily_search_depth',
     'TEXT_SPLITTER': 'rag.text_splitter',
     'TIKA_SERVER_URL': 'rag.tika_server_url',
     'TIKA_SERVER_VERSION': 'rag.tika_server_version',
@@ -737,6 +743,9 @@ async def get_rag_config(request: Request, user=Depends(get_admin_user)):
             'SERPLY_API_KEY': config.SERPLY_API_KEY,
             'DDGS_BACKEND': config.DDGS_BACKEND,
             'TAVILY_API_KEY': config.TAVILY_API_KEY,
+            'STAAN_API_KEY': config.STAAN_API_KEY,
+            'STAAN_MARKET': config.STAAN_MARKET,
+            'STAAN_MAX_SNIPPETS': config.STAAN_MAX_SNIPPETS,
             'SEARCHAPI_API_KEY': config.SEARCHAPI_API_KEY,
             'SEARCHAPI_ENGINE': config.SEARCHAPI_ENGINE,
             'SERPAPI_API_KEY': config.SERPAPI_API_KEY,
@@ -765,6 +774,7 @@ async def get_rag_config(request: Request, user=Depends(get_admin_user)):
             'FIRECRAWL_API_BASE_URL': config.FIRECRAWL_API_BASE_URL,
             'FIRECRAWL_TIMEOUT': config.FIRECRAWL_TIMEOUT,
             'TAVILY_EXTRACT_DEPTH': config.TAVILY_EXTRACT_DEPTH,
+            'TAVILY_SEARCH_DEPTH': config.TAVILY_SEARCH_DEPTH,
             'EXTERNAL_WEB_SEARCH_URL': config.EXTERNAL_WEB_SEARCH_URL,
             'EXTERNAL_WEB_SEARCH_API_KEY': config.EXTERNAL_WEB_SEARCH_API_KEY,
             'EXTERNAL_WEB_LOADER_URL': config.EXTERNAL_WEB_LOADER_URL,
@@ -817,6 +827,9 @@ class WebConfig(BaseModel):
     SERPLY_API_KEY: str | None = None
     DDGS_BACKEND: str | None = None
     TAVILY_API_KEY: str | None = None
+    STAAN_API_KEY: str | None = None
+    STAAN_MARKET: str | None = None
+    STAAN_MAX_SNIPPETS: int | None = None
     SEARCHAPI_API_KEY: str | None = None
     SEARCHAPI_ENGINE: str | None = None
     SERPAPI_API_KEY: str | None = None
@@ -845,6 +858,7 @@ class WebConfig(BaseModel):
     FIRECRAWL_API_BASE_URL: str | None = None
     FIRECRAWL_TIMEOUT: str | None = None
     TAVILY_EXTRACT_DEPTH: str | None = None
+    TAVILY_SEARCH_DEPTH: str | None = None
     EXTERNAL_WEB_SEARCH_URL: str | None = None
     EXTERNAL_WEB_SEARCH_API_KEY: str | None = None
     EXTERNAL_WEB_LOADER_URL: str | None = None
@@ -1337,6 +1351,9 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
         config.SERPLY_API_KEY = form_data.web.SERPLY_API_KEY
         config.DDGS_BACKEND = form_data.web.DDGS_BACKEND
         config.TAVILY_API_KEY = form_data.web.TAVILY_API_KEY
+        config.STAAN_API_KEY = form_data.web.STAAN_API_KEY
+        config.STAAN_MARKET = form_data.web.STAAN_MARKET
+        config.STAAN_MAX_SNIPPETS = form_data.web.STAAN_MAX_SNIPPETS
         config.SEARCHAPI_API_KEY = form_data.web.SEARCHAPI_API_KEY
         config.SEARCHAPI_ENGINE = form_data.web.SEARCHAPI_ENGINE
         config.SERPAPI_API_KEY = form_data.web.SERPAPI_API_KEY
@@ -1372,6 +1389,7 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
         config.EXTERNAL_WEB_LOADER_URL = form_data.web.EXTERNAL_WEB_LOADER_URL
         config.EXTERNAL_WEB_LOADER_API_KEY = form_data.web.EXTERNAL_WEB_LOADER_API_KEY
         config.TAVILY_EXTRACT_DEPTH = form_data.web.TAVILY_EXTRACT_DEPTH
+        config.TAVILY_SEARCH_DEPTH = form_data.web.TAVILY_SEARCH_DEPTH
         config.YOUTUBE_LOADER_LANGUAGE = form_data.web.YOUTUBE_LOADER_LANGUAGE
         config.YOUTUBE_LOADER_PROXY_URL = form_data.web.YOUTUBE_LOADER_PROXY_URL
         request.app.state.YOUTUBE_LOADER_TRANSLATION = form_data.web.YOUTUBE_LOADER_TRANSLATION
@@ -1490,6 +1508,9 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
             'SERPHOUSE_DOMAIN': config.SERPHOUSE_DOMAIN,
             'SERPLY_API_KEY': config.SERPLY_API_KEY,
             'TAVILY_API_KEY': config.TAVILY_API_KEY,
+            'STAAN_API_KEY': config.STAAN_API_KEY,
+            'STAAN_MARKET': config.STAAN_MARKET,
+            'STAAN_MAX_SNIPPETS': config.STAAN_MAX_SNIPPETS,
             'SEARCHAPI_API_KEY': config.SEARCHAPI_API_KEY,
             'SEARCHAPI_ENGINE': config.SEARCHAPI_ENGINE,
             'SERPAPI_API_KEY': config.SERPAPI_API_KEY,
@@ -1518,6 +1539,7 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
             'FIRECRAWL_API_BASE_URL': config.FIRECRAWL_API_BASE_URL,
             'FIRECRAWL_TIMEOUT': config.FIRECRAWL_TIMEOUT,
             'TAVILY_EXTRACT_DEPTH': config.TAVILY_EXTRACT_DEPTH,
+            'TAVILY_SEARCH_DEPTH': config.TAVILY_SEARCH_DEPTH,
             'EXTERNAL_WEB_SEARCH_URL': config.EXTERNAL_WEB_SEARCH_URL,
             'EXTERNAL_WEB_SEARCH_API_KEY': config.EXTERNAL_WEB_SEARCH_API_KEY,
             'EXTERNAL_WEB_LOADER_URL': config.EXTERNAL_WEB_LOADER_URL,
@@ -1686,6 +1708,27 @@ def filter_file_metadata(metadata: dict | None) -> dict:
     return filter_metadata(metadata)
 
 
+def has_duplicate_content(collection_name: str, hash: str, file_id: str | None) -> bool:
+    result = get_vector_db_client().query(
+        collection_name=collection_name,
+        filter={'hash': hash},
+    )
+
+    if result is not None and result.ids and len(result.ids) > 0:
+        existing_doc_ids = result.ids[0]
+        if existing_doc_ids:
+            # Check if the existing document belongs to the same file
+            # If same file_id, this is a re-add/reindex - allow it
+            # If different file_id, this is a duplicate - block it
+            existing_file_id = None
+            if result.metadatas and result.metadatas[0]:
+                existing_file_id = result.metadatas[0][0].get('file_id')
+
+            return existing_file_id != file_id
+
+    return False
+
+
 def save_docs_to_vector_db(
     request: Request,
     docs,
@@ -1717,24 +1760,9 @@ def save_docs_to_vector_db(
 
     # Check if entries with the same hash (metadata.hash) already exist
     if metadata and 'hash' in metadata:
-        result = get_vector_db_client().query(
-            collection_name=collection_name,
-            filter={'hash': metadata['hash']},
-        )
-
-        if result is not None and result.ids and len(result.ids) > 0:
-            existing_doc_ids = result.ids[0]
-            if existing_doc_ids:
-                # Check if the existing document belongs to the same file
-                # If same file_id, this is a re-add/reindex - allow it
-                # If different file_id, this is a duplicate - block it
-                existing_file_id = None
-                if result.metadatas and result.metadatas[0]:
-                    existing_file_id = result.metadatas[0][0].get('file_id')
-
-                if existing_file_id != metadata.get('file_id'):
-                    log.info('Document with hash %s already exists', metadata['hash'])
-                    raise ValueError(ERROR_MESSAGES.DUPLICATE_CONTENT)
+        if has_duplicate_content(collection_name, metadata['hash'], metadata.get('file_id')):
+            log.info('Document with hash %s already exists', metadata['hash'])
+            raise ValueError(ERROR_MESSAGES.DUPLICATE_CONTENT)
 
     if split:
         if config.ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER:
@@ -1919,10 +1947,10 @@ async def process_file(
     The session is committed before external API calls, and updates use a fresh session.
     """
     config = await get_retrieval_config()
-    if user.role == 'admin':
-        file = await Files.get_file_by_id(form_data.file_id, db=db)
-    else:
-        file = await Files.get_file_by_id_and_user_id(form_data.file_id, user.id, db=db)
+    file = await Files.get_file_by_id(form_data.file_id, db=db)
+    if file and file.user_id != user.id and user.role != 'admin':
+        if not await has_access_to_file(file.id, 'write', user, db=db):
+            file = None
 
     if file:
         try:
@@ -2235,9 +2263,11 @@ async def _fetch_url(url: str, max_size_mb: int | str | None) -> dict:
         except (TypeError, ValueError):
             max_bytes = None
 
+    headers = {'User-Agent': USER_AGENT} if USER_AGENT else None
+
     async with get_ssrf_safe_session() as session:
         async with session.get(
-            url, ssl=AIOHTTP_CLIENT_SESSION_SSL, allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS
+            url, headers=headers, ssl=AIOHTTP_CLIENT_SESSION_SSL, allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS
         ) as response:
             response.raise_for_status()
 
@@ -2357,7 +2387,16 @@ async def process_url(
             }
 
         config = await get_retrieval_config()
-        url_result = await _fetch_url(form_data.url, config.FILE_MAX_SIZE)
+        try:
+            url_result = await _fetch_url(form_data.url, config.FILE_MAX_SIZE)
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.exception(e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ERROR_MESSAGES.DEFAULT(e, f'Could not read content from {form_data.url}'),
+            )
 
         if url_result['kind'] == 'web':
             result = await process_web(request, form_data, process=process, user=user)
@@ -2436,6 +2475,13 @@ async def process_web(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.DEFAULT(e, f'Could not read content from {form_data.url}'),
+        )
+
+    # web loaders swallow fetch errors and return no documents
+    if not docs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.DEFAULT(f'Could not read content from {form_data.url}'),
         )
 
     try:
@@ -2686,9 +2732,23 @@ async def search_web(request: Request, engine: str, query: str, user=None) -> li
                 query,
                 config.WEB_SEARCH_RESULT_COUNT,
                 config.WEB_SEARCH_DOMAIN_FILTER_LIST,
+                search_depth=config.TAVILY_SEARCH_DEPTH,
             )
         else:
             raise Exception('No TAVILY_API_KEY found in environment variables')
+    elif engine == 'staan':
+        if config.STAAN_API_KEY:
+            return await asyncio.to_thread(
+                search_staan,
+                config.STAAN_API_KEY,
+                query,
+                config.WEB_SEARCH_RESULT_COUNT,
+                config.WEB_SEARCH_DOMAIN_FILTER_LIST,
+                market=config.STAAN_MARKET,
+                max_snippets=config.STAAN_MAX_SNIPPETS,
+            )
+        else:
+            raise Exception('No STAAN_API_KEY found in environment variables')
     elif engine == 'exa':
         if config.EXA_API_KEY:
             return await asyncio.to_thread(
@@ -2979,6 +3039,12 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
                 'loaded_count': len(docs),
             }
         else:
+            if not any(doc.page_content.strip() for doc in docs):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=ERROR_MESSAGES.DEFAULT('None of the web search results could be loaded'),
+                )
+
             # Create a single collection for all documents
             # Bind the ephemeral collection to its owner so filter_accessible_collections can scope it per-user.
             collection_name = f'web-search-{user.id}-{calculate_sha256_string("-".join(form_data.queries))}'[:63]
@@ -3336,6 +3402,7 @@ async def process_files_batch(
     file_results: list[BatchProcessFilesResult] = []
     file_errors: list[BatchProcessFilesResult] = []
     file_updates: list[FileUpdateForm] = []
+    seen_hashes: set[str] = set()
 
     # Prepare all documents first
     all_docs: list[Document] = []
@@ -3364,6 +3431,11 @@ async def process_files_batch(
                 continue
 
             text_content = file.data.get('content', '')
+            hash = calculate_sha256_string(text_content)
+            if hash in seen_hashes or await run_in_threadpool(has_duplicate_content, collection_name, hash, file.id):
+                raise ValueError(ERROR_MESSAGES.DUPLICATE_CONTENT)
+            seen_hashes.add(hash)
+
             docs: list[Document] = [
                 Document(
                     page_content=text_content.replace('<br/>', '\n'),
@@ -3373,6 +3445,7 @@ async def process_files_batch(
                         'created_by': file.user_id,
                         'file_id': file.id,
                         'source': file.filename,
+                        'hash': hash,
                     },
                 )
             ]
@@ -3381,7 +3454,7 @@ async def process_files_batch(
 
             file_updates.append(
                 FileUpdateForm(
-                    hash=calculate_sha256_string(text_content),
+                    hash=hash,
                     data={'content': text_content},
                 )
             )

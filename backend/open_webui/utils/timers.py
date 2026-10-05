@@ -11,12 +11,13 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from open_webui.internal.db import get_async_db
 from open_webui.models.chat_messages import ChatMessages
 from open_webui.models.chats import Chat, ChatForm, Chats
 from open_webui.models.users import UserModel, Users
 from open_webui.tasks import has_active_tasks
+from open_webui.utils.auth import VERIFIED_USER_ROLES
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.misc import get_message_list
 from sqlalchemy import select
@@ -258,6 +259,11 @@ async def execute_due_timer(app, timer_id: str, claim_id: str | None = None) -> 
             await _set_timer_state(timer_id, 'error', timer_error='timer user no longer exists')
             return
 
+        # Re-gate the rehydrated owner: a demoted owner must not run.
+        if user.role not in VERIFIED_USER_ROLES:
+            await _set_timer_state(timer_id, 'error', timer_error='owner no longer permitted to run timers')
+            return
+
         run = meta.get('run') or {}
         model_id = run.get('model_id') or meta.get('timer_model_id')
         if not model_id:
@@ -345,6 +351,7 @@ async def execute_due_timer(app, timer_id: str, claim_id: str | None = None) -> 
 
                 parent.chat = parent_chat
                 history['currentId'] = assistant_message_id
+                parent.current_message_id = assistant_message_id
                 parent.updated_at = int(time.time())
                 timer_row = await db.get(Chat, timer_id)
                 if timer_row:
@@ -410,7 +417,20 @@ async def execute_due_timer(app, timer_id: str, claim_id: str | None = None) -> 
             await app.state.CHAT_COMPLETION_HANDLER(request, form_data, user=user)
         except Exception as exc:
             log.exception(f'Timer {timer_id} completion failed')
-            await _set_timer_state(timer_id, 'error', timer_error=str(exc)[:500])
+            error_detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            await _set_timer_state(timer_id, 'error', timer_error=error_detail[:500])
+            await Chats.upsert_message_to_chat_by_id_and_message_id(
+                parent_chat_id, assistant_message_id, {'error': {'content': error_detail}, 'done': True}
+            )
+            await sio.emit(
+                'events',
+                {
+                    'chat_id': parent_chat_id,
+                    'message_id': assistant_message_id,
+                    'data': {'type': 'chat:message:error', 'data': {'error': {'content': error_detail}, 'done': True}},
+                },
+                room=f'user:{timer.user_id}',
+            )
 
 
 async def _set_timer_state(timer_id: str, status: str, **fields) -> None:

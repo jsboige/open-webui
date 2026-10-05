@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';
-	import equal from 'fast-deep-equal';
-	import { skills, terminalSkills } from '$lib/stores';
+	import { equalEditorJSON } from '$lib/utils/editorJson';
+	import { showCallOverlay, skills, terminalSkills } from '$lib/stores';
 
 	marked.use({
 		breaks: true,
@@ -66,18 +66,19 @@
 		filter: 'table',
 		replacement: function (content, node) {
 			// Extract rows
-			const rows = Array.from(node.querySelectorAll('tr'));
+			const rows = Array.from(node.rows);
 			if (rows.length === 0) return content;
 
 			let markdown = '\n';
 
 			rows.forEach((row, rowIndex) => {
-				const cells = Array.from(row.querySelectorAll('th, td'));
+				const cells = Array.from(row.cells);
 				const cellContents = cells.map((cell) => {
 					// Get the text content and clean it up
 					let cellContent = turndownService.turndown(cell.innerHTML).trim();
 					// Remove extra paragraph tags that might be added
 					cellContent = cellContent.replace(/^\n+|\n+$/g, '');
+					cellContent = cellContent.replace(/\n/g, '<br>');
 					return cellContent;
 				});
 
@@ -142,7 +143,7 @@
 	import { Decoration, DecorationSet } from 'prosemirror-view';
 	import { Editor, Extension, markInputRule, mergeAttributes } from '@tiptap/core';
 
-	import { AIAutocompletion } from './RichTextInput/AutoCompletion.js';
+	import { AIAutocompletion, setFollowUpSuggestion } from './RichTextInput/AutoCompletion.js';
 
 	import StarterKit from '@tiptap/starter-kit';
 
@@ -321,23 +322,7 @@
 	export let followUpSuggestion = '';
 
 	$: if (editor && !editor.isDestroyed) {
-		const { doc } = editor.state;
-		const node = doc.firstChild;
-		if (node?.type.name === 'paragraph' && !node.attrs['data-prompt']) {
-			const suggestion = doc.childCount === 1 && node.content.size === 0 ? followUpSuggestion : '';
-			if ((node.attrs['data-suggestion'] ?? '') !== suggestion) {
-				editor.view.dispatch(
-					editor.state.tr
-						.setNodeMarkup(0, null, {
-							...node.attrs,
-							class: suggestion ? 'ai-autocompletion' : null,
-							'data-prompt': suggestion ? '' : null,
-							'data-suggestion': suggestion || null
-						})
-						.setMeta('addToHistory', false)
-				);
-			}
-		}
+		setFollowUpSuggestion(editor.view, followUpSuggestion);
 	}
 
 	export let messageInput = false;
@@ -345,6 +330,9 @@
 	export let largeTextAsFile = false;
 	export let insertPromptAsRichText = false;
 	export let floatingMenuPlacement = 'bottom-start';
+
+	// Keep focus off the chat input during a call so the call overlay's M shortcut works
+	$: suppressAutoFocus = messageInput && $showCallOverlay;
 
 	let content = null;
 	let htmlValue = '';
@@ -550,7 +538,9 @@
 		selectNextTemplate(editor.view.state, editor.view.dispatch);
 
 		// Ensure the editor is still valid before trying to focus
-		focus();
+		if (!suppressAutoFocus) {
+			focus();
+		}
 	};
 
 	export const insertContent = (content) => {
@@ -710,7 +700,7 @@
 			// After updating the state, try to find and select the next template
 			setTimeout(() => {
 				const templateFound = selectNextTemplate(editor.view.state, editor.view.dispatch);
-				if (!templateFound) {
+				if (!templateFound && !suppressAutoFocus) {
 					editor.commands.focus('end');
 				}
 			}, 0);
@@ -945,7 +935,7 @@
 				...(collaboration && provider ? [provider.getEditorExtension()] : [])
 			],
 			content: provider ? undefined : content,
-			autofocus: messageInput ? true : false,
+			autofocus: messageInput && !$showCallOverlay,
 			onTransaction: () => {
 				if (!editor) return;
 
@@ -1375,7 +1365,7 @@
 		}
 
 		if (json) {
-			if (!equal(value, jsonValue)) {
+			if (!equalEditorJSON(value, jsonValue)) {
 				editor.commands.setContent(value);
 				selectTemplate();
 			}

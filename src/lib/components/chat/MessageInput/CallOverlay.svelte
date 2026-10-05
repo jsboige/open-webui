@@ -44,6 +44,7 @@
 	let mediaRecorder;
 	let audioStream = null;
 	let audioChunks = [];
+	let destroyed = false;
 
 	let videoInputDevices = [];
 	let selectedVideoInputDeviceId = null;
@@ -184,7 +185,8 @@
 	};
 
 	const stopRecordingCallback = async (_continue = true) => {
-		if ($showCallOverlay) {
+		// $showCallOverlay stays true when the chat page unmounts
+		if ($showCallOverlay && !destroyed) {
 			console.log('%c%s', 'color: red; font-size: 20px;', '🚨 stopRecordingCallback 🚨');
 
 			// deep copy the audioChunks array
@@ -231,7 +233,7 @@
 	};
 
 	const startRecording = async () => {
-		if ($showCallOverlay) {
+		if ($showCallOverlay && !destroyed) {
 			if (!audioStream) {
 				audioStream = await navigator.mediaDevices.getUserMedia({
 					audio: {
@@ -379,6 +381,7 @@
 	};
 
 	let finishedMessages = {};
+	let failedMessages = {};
 	let currentMessageId = null;
 	let currentUtterance: SpeechSynthesisUtterance | null = null;
 
@@ -453,21 +456,17 @@
 				};
 
 				audioElement.src = audio.src;
-				audioElement.muted = true;
+				// stopAllAudio mutes it; unmuting after play() outside a gesture makes WebKit pause it
+				audioElement.muted = false;
 				audioElement.playbackRate = $settings.audio?.tts?.playbackRate ?? 1;
 				audioElement.onended = finish;
 				audioElement.onerror = () => finish();
 				audioElement.onpause = finish;
 
-				audioElement
-					.play()
-					.then(() => {
-						audioElement.muted = false;
-					})
-					.catch((error) => {
-						console.error(error);
-						finish(error);
-					});
+				audioElement.play().catch((error) => {
+					console.error(error);
+					finish(error);
+				});
 			});
 		} else {
 			return Promise.resolve();
@@ -477,6 +476,7 @@
 	const stopAllAudio = async () => {
 		assistantSpeaking = false;
 		interrupted = true;
+		audioAbortController.abort();
 
 		if (chatStreaming) {
 			stopResponse();
@@ -502,7 +502,9 @@
 	const emojiCache = new Map();
 
 	const fetchAudio = async (content) => {
-		if (!audioCache.has(content)) {
+		const id = currentMessageId;
+
+		if (!audioCache.has(content) && !failedMessages[id]) {
 			try {
 				// Set the emoji for the content if needed
 				if ($settings?.showEmojiInCall ?? false) {
@@ -535,6 +537,10 @@
 					const res = await synthesizeOpenAISpeech(localStorage.token, getVoiceId(), content).catch(
 						(error) => {
 							console.error(error);
+							if (!failedMessages[id]) {
+								failedMessages[id] = true;
+								toast.error(`${error}`);
+							}
 							return null;
 						}
 					);
@@ -549,6 +555,10 @@
 				}
 			} catch (error) {
 				console.error('Error synthesizing speech:', error);
+			}
+
+			if (!audioCache.has(content)) {
+				failedMessages[id] = true;
 			}
 		}
 
@@ -591,7 +601,7 @@
 					} else {
 						await speakSpeechSynthesisHandler(content);
 					}
-				} else {
+				} else if (!failedMessages[id]) {
 					// If not available in the cache, push it back to the queue and delay
 					messages[id].unshift(content); // Re-queue the content at the start
 					console.log(`Audio for "${content}" not yet available in the cache, re-queued...`);
@@ -735,6 +745,21 @@
 
 		model = $models.find((m) => m.id === modelId);
 
+		if ($settings.audio?.tts?.engine === 'browser-kokoro' && !$TTSWorker) {
+			try {
+				await TTSWorker.set(
+					new KokoroWorker({
+						dtype: $settings.audio?.tts?.engineConfig?.dtype ?? 'fp32'
+					})
+				);
+
+				await $TTSWorker.init();
+			} catch (error) {
+				console.error(error);
+				toast.error(`${error}`);
+			}
+		}
+
 		startRecording();
 
 		eventTarget.addEventListener('chat:start', chatStartHandler);
@@ -765,6 +790,7 @@
 	});
 
 	onDestroy(async () => {
+		destroyed = true;
 		await stopAllAudio();
 		await stopRecordingCallback(false);
 		await stopCamera();
