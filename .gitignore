@@ -1,6 +1,12 @@
 x.py
 yarn.lock
 backups/
+
+# agent scratch / harness outputs (global rule: each repo ignores these)
+.tmp/
+scratchpad_*/
+C:Users*
+
 .claude/*
 !.claude/commands/
 !.claude/skills/
