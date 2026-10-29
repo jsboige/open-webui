@@ -1,0 +1,82 @@
+{
+  "generated_at": "2026-05-16T14:29:42.926729+00:00",
+  "tenants": {
+    "myia": {
+      "models_count": 92,
+      "openai_connectors_total": 12,
+      "openai_connectors_enabled": 7,
+      "tool_servers_count": 1,
+      "tool_servers_on_new_token": 1,
+      "chat_status": 200,
+      "chat_content": "OK",
+      "tts_status": 500,
+      "log_errors_10m": 0
+    },
+    "epf": {
+      "models_count": 88,
+      "openai_connectors_total": 12,
+      "openai_connectors_enabled": 7,
+      "tool_servers_count": 1,
+      "tool_servers_on_new_token": 1,
+      "chat_status": 200,
+      "chat_content": "OK",
+      "tts_status": 500,
+      "log_errors_10m": 0
+    },
+    "epf-genai": {
+      "models_count": 90,
+      "openai_connectors_total": 12,
+      "openai_connectors_enabled": 7,
+      "tool_servers_count": 1,
+      "tool_servers_on_new_token": 1,
+      "chat_status": 200,
+      "chat_content": "OK",
+      "tts_status": 500,
+      "log_errors_10m": 0
+    },
+    "ece": {
+      "models_count": 90,
+      "openai_connectors_total": 12,
+      "openai_connectors_enabled": 7,
+      "tool_servers_count": 1,
+      "tool_servers_on_new_token": 1,
+      "chat_status": 200,
+      "chat_content": "OK.",
+      "tts_status": 500,
+      "log_errors_10m": 0
+    },
+    "esg": {
+      "models_count": 85,
+      "openai_connectors_total": 12,
+      "openai_connectors_enabled": 7,
+      "tool_servers_count": 1,
+      "tool_servers_on_new_token": 1,
+      "chat_status": 200,
+      "chat_content": "OK",
+      "tts_status": 500,
+      "log_errors_10m": 0
+    },
+    "epita": {
+      "models_count": 90,
+      "openai_connectors_total": 12,
+      "openai_connectors_enabled": 7,
+      "tool_servers_count": 1,
+      "tool_servers_on_new_token": 1,
+      "chat_status": 200,
+      "chat_content": "OK",
+      "tts_status": 500,
+      "log_errors_10m": 0
+    },
+    "pauwels": {
+      "models_count": 85,
+      "openai_connectors_total": 12,
+      "openai_connectors_enabled": 7,
+      "tool_servers_count": 1,
+      "tool_servers_on_new_token": 1,
+      "chat_status": 200,
+      "chat_content": "OK.",
+      "tts_status": 500,
+      "log_errors_10m": 0
+    }
+  }
+}

@@ -1,0 +1,418 @@
+{
+  "generated_at": "2026-05-06T11:09:55.391359+00:00",
+  "tenants": [
+    {
+      "tenant": "myia",
+      "models": {
+        "Local.qwen3.6-35b-a3b": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B-A3B avec thinking activé. Paramètres calibrés pour AWQ Q4 (temp 0.7, pp 1.5). Local et gratuit. Contexte 262K tokens."
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Version rapide de Qwen3.6-35B sans réflexion interne. Réponses directes en 1-3 secondes. Local et gratuit. Contexte 262K tokens. Idéal pour : questions simples, traductions, reformulations, conversati"
+        },
+        "expert-analyste": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Analyste structuré français. Décompose les problèmes complexes en étapes, produit des analyses claires avec sections numérotées. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : études de c"
+        },
+        "redacteur-technique": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Rédacteur de documentation technique en français. Produit des guides, procédures, rapports et spécifications structurés. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : rédaction de docs, "
+        },
+        "Qwen_think": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode, sampling optimisé général (temp 0.7, pp 1.5). Calibré AWQ Q4."
+        },
+        "Qwen_think-code": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode optimisé code (temp 0.6, pas de pénalité). Preset officiel Qwen."
+        },
+        "Qwen_think-reason": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode raisonnement profond (temp 1.0, pp 1.5, top_k 40). Max diversité."
+        },
+        "Qwen_instruct": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B mode instruct sans thinking. Réponses rapides, anti-bleed Q4 (rp 1.1)."
+        },
+        "vision-expert": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Spécialiste analyse d'images et documents visuels. Décrit, interprète et extrait les données des photos, diagrammes, captures d'écran et schémas. Basé sur Qwen3.6-35B-A3B (local, gratuit, multimodal)."
+        }
+      }
+    },
+    {
+      "tenant": "epf",
+      "models": {
+        "Local.qwen3.6-35b-a3b": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B-A3B avec thinking activé. Paramètres calibrés pour AWQ Q4 (temp 0.7, pp 1.5). Local et gratuit. Contexte 262K tokens."
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Version rapide de Qwen3.6-35B sans réflexion interne. Réponses directes en 1-3 secondes. Local et gratuit. Contexte 262K tokens. Idéal pour : questions simples, traductions, reformulations, conversati"
+        },
+        "expert-analyste": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Analyste structuré français. Décompose les problèmes complexes en étapes, produit des analyses claires avec sections numérotées. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : études de c"
+        },
+        "redacteur-technique": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Rédacteur de documentation technique en français. Produit des guides, procédures, rapports et spécifications structurés. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : rédaction de docs, "
+        },
+        "Qwen_think": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode, sampling optimisé général (temp 0.7, pp 1.5). Calibré AWQ Q4."
+        },
+        "Qwen_think-code": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode optimisé code (temp 0.6, pas de pénalité). Preset officiel Qwen."
+        },
+        "Qwen_think-reason": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode raisonnement profond (temp 1.0, pp 1.5, top_k 40). Max diversité."
+        },
+        "Qwen_instruct": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B mode instruct sans thinking. Réponses rapides, anti-bleed Q4 (rp 1.1)."
+        },
+        "vision-expert": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Spécialiste analyse d'images et documents visuels. Décrit, interprète et extrait les données des photos, diagrammes, captures d'écran et schémas. Basé sur Qwen3.6-35B-A3B (local, gratuit, multimodal)."
+        }
+      }
+    },
+    {
+      "tenant": "epf-genai",
+      "models": {
+        "Local.qwen3.6-35b-a3b": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B-A3B avec thinking activé. Paramètres calibrés pour AWQ Q4 (temp 0.7, pp 1.5). Local et gratuit. Contexte 262K tokens."
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Version rapide de Qwen3.6-35B sans réflexion interne. Réponses directes en 1-3 secondes. Local et gratuit. Contexte 262K tokens. Idéal pour : questions simples, traductions, reformulations, conversati"
+        },
+        "expert-analyste": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Analyste structuré français. Décompose les problèmes complexes en étapes, produit des analyses claires avec sections numérotées. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : études de c"
+        },
+        "redacteur-technique": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Rédacteur de documentation technique en français. Produit des guides, procédures, rapports et spécifications structurés. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : rédaction de docs, "
+        },
+        "Qwen_think": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode, sampling optimisé général (temp 0.7, pp 1.5). Calibré AWQ Q4."
+        },
+        "Qwen_think-code": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode optimisé code (temp 0.6, pas de pénalité). Preset officiel Qwen."
+        },
+        "Qwen_think-reason": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode raisonnement profond (temp 1.0, pp 1.5, top_k 40). Max diversité."
+        },
+        "Qwen_instruct": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B mode instruct sans thinking. Réponses rapides, anti-bleed Q4 (rp 1.1)."
+        },
+        "vision-expert": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Spécialiste analyse d'images et documents visuels. Décrit, interprète et extrait les données des photos, diagrammes, captures d'écran et schémas. Basé sur Qwen3.6-35B-A3B (local, gratuit, multimodal)."
+        }
+      }
+    },
+    {
+      "tenant": "ece",
+      "models": {
+        "Local.qwen3.6-35b-a3b": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B-A3B avec thinking activé. Paramètres calibrés pour AWQ Q4 (temp 0.7, pp 1.5). Local et gratuit. Contexte 262K tokens."
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Version rapide de Qwen3.6-35B sans réflexion interne. Réponses directes en 1-3 secondes. Local et gratuit. Contexte 262K tokens. Idéal pour : questions simples, traductions, reformulations, conversati"
+        },
+        "expert-analyste": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Analyste structuré français. Décompose les problèmes complexes en étapes, produit des analyses claires avec sections numérotées. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : études de c"
+        },
+        "redacteur-technique": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Rédacteur de documentation technique en français. Produit des guides, procédures, rapports et spécifications structurés. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : rédaction de docs, "
+        },
+        "Qwen_think": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode, sampling optimisé général (temp 0.7, pp 1.5). Calibré AWQ Q4."
+        },
+        "Qwen_think-code": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode optimisé code (temp 0.6, pas de pénalité). Preset officiel Qwen."
+        },
+        "Qwen_think-reason": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode raisonnement profond (temp 1.0, pp 1.5, top_k 40). Max diversité."
+        },
+        "Qwen_instruct": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B mode instruct sans thinking. Réponses rapides, anti-bleed Q4 (rp 1.1)."
+        },
+        "vision-expert": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Spécialiste analyse d'images et documents visuels. Décrit, interprète et extrait les données des photos, diagrammes, captures d'écran et schémas. Basé sur Qwen3.6-35B-A3B (local, gratuit, multimodal)."
+        }
+      }
+    },
+    {
+      "tenant": "esg",
+      "models": {
+        "Local.qwen3.6-35b-a3b": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B-A3B avec thinking activé. Paramètres calibrés pour AWQ Q4 (temp 0.7, pp 1.5). Local et gratuit. Contexte 262K tokens."
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Version rapide de Qwen3.6-35B sans réflexion interne. Réponses directes en 1-3 secondes. Local et gratuit. Contexte 262K tokens. Idéal pour : questions simples, traductions, reformulations, conversati"
+        },
+        "expert-analyste": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Analyste structuré français. Décompose les problèmes complexes en étapes, produit des analyses claires avec sections numérotées. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : études de c"
+        },
+        "redacteur-technique": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Rédacteur de documentation technique en français. Produit des guides, procédures, rapports et spécifications structurés. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : rédaction de docs, "
+        },
+        "Qwen_think": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode, sampling optimisé général (temp 0.7, pp 1.5). Calibré AWQ Q4."
+        },
+        "Qwen_think-code": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode optimisé code (temp 0.6, pas de pénalité). Preset officiel Qwen."
+        },
+        "Qwen_think-reason": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode raisonnement profond (temp 1.0, pp 1.5, top_k 40). Max diversité."
+        },
+        "Qwen_instruct": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B mode instruct sans thinking. Réponses rapides, anti-bleed Q4 (rp 1.1)."
+        },
+        "vision-expert": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Spécialiste analyse d'images et documents visuels. Décrit, interprète et extrait les données des photos, diagrammes, captures d'écran et schémas. Basé sur Qwen3.6-35B-A3B (local, gratuit, multimodal)."
+        }
+      }
+    },
+    {
+      "tenant": "epita",
+      "models": {
+        "Local.qwen3.6-35b-a3b": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B-A3B avec thinking activé. Paramètres calibrés pour AWQ Q4 (temp 0.7, pp 1.5). Local et gratuit. Contexte 262K tokens."
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Version rapide de Qwen3.6-35B sans réflexion interne. Réponses directes en 1-3 secondes. Local et gratuit. Contexte 262K tokens. Idéal pour : questions simples, traductions, reformulations, conversati"
+        },
+        "expert-analyste": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Analyste structuré français. Décompose les problèmes complexes en étapes, produit des analyses claires avec sections numérotées. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : études de c"
+        },
+        "redacteur-technique": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Rédacteur de documentation technique en français. Produit des guides, procédures, rapports et spécifications structurés. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : rédaction de docs, "
+        },
+        "Qwen_think": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode, sampling optimisé général (temp 0.7, pp 1.5). Calibré AWQ Q4."
+        },
+        "Qwen_think-code": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode optimisé code (temp 0.6, pas de pénalité). Preset officiel Qwen."
+        },
+        "Qwen_think-reason": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode raisonnement profond (temp 1.0, pp 1.5, top_k 40). Max diversité."
+        },
+        "Qwen_instruct": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B mode instruct sans thinking. Réponses rapides, anti-bleed Q4 (rp 1.1)."
+        },
+        "vision-expert": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Spécialiste analyse d'images et documents visuels. Décrit, interprète et extrait les données des photos, diagrammes, captures d'écran et schémas. Basé sur Qwen3.6-35B-A3B (local, gratuit, multimodal)."
+        }
+      }
+    },
+    {
+      "tenant": "pauwels",
+      "models": {
+        "Local.qwen3.6-35b-a3b": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B-A3B avec thinking activé. Paramètres calibrés pour AWQ Q4 (temp 0.7, pp 1.5). Local et gratuit. Contexte 262K tokens."
+        },
+        "Local.qwen3.6-35b-a3b-fast": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Version rapide de Qwen3.6-35B sans réflexion interne. Réponses directes en 1-3 secondes. Local et gratuit. Contexte 262K tokens. Idéal pour : questions simples, traductions, reformulations, conversati"
+        },
+        "expert-analyste": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Analyste structuré français. Décompose les problèmes complexes en étapes, produit des analyses claires avec sections numérotées. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : études de c"
+        },
+        "redacteur-technique": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Rédacteur de documentation technique en français. Produit des guides, procédures, rapports et spécifications structurés. Basé sur Qwen3.6-35B (local, gratuit, rapide). Idéal pour : rédaction de docs, "
+        },
+        "Qwen_think": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode, sampling optimisé général (temp 0.7, pp 1.5). Calibré AWQ Q4."
+        },
+        "Qwen_think-code": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode optimisé code (temp 0.6, pas de pénalité). Preset officiel Qwen."
+        },
+        "Qwen_think-reason": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B thinking mode raisonnement profond (temp 1.0, pp 1.5, top_k 40). Max diversité."
+        },
+        "Qwen_instruct": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Qwen3.6-35B mode instruct sans thinking. Réponses rapides, anti-bleed Q4 (rp 1.1)."
+        },
+        "vision-expert": {
+          "present": true,
+          "base_model_id": "Local.qwen3.6-35b-a3b",
+          "is_active": true,
+          "description": "Spécialiste analyse d'images et documents visuels. Décrit, interprète et extrait les données des photos, diagrammes, captures d'écran et schémas. Basé sur Qwen3.6-35B-A3B (local, gratuit, multimodal)."
+        }
+      }
+    }
+  ]
+}

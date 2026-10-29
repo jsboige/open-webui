@@ -1,0 +1,201 @@
+{
+  "generated_at": "2026-05-01T09:04:06.111847+00:00",
+  "needles": [
+    "omnicoder",
+    "qwen3.5-mini",
+    "mini.text-generation",
+    "5001",
+    "Local.qwen3.5-35b-a3b-fast"
+  ],
+  "tenants": [
+    {
+      "tenant": "myia",
+      "label": "Reference (myia)",
+      "url": "https://open-webui.myia.io",
+      "auth": "OK",
+      "openai_connectors_total": 12,
+      "openai_omnicoder_flagged": [
+        {
+          "idx": 2,
+          "url": "https://api.mini.text-generation-webui.myia.io/v1",
+          "prefix_id": "Local",
+          "enabled": false
+        }
+      ],
+      "models_total_listed": 24,
+      "models_omnicoder_flagged": [],
+      "audio_tts": {
+        "ENGINE": "openai",
+        "API_KEY": "",
+        "OPENAI_API_BASE_URL": "http://kokoro-tts:8880/v1",
+        "OPENAI_API_KEY_set": true,
+        "MODEL": "kokoro",
+        "VOICE": "ff_siwis",
+        "SPLIT_ON": "punctuation"
+      },
+      "audio_stt_engine": "openai"
+    },
+    {
+      "tenant": "epf",
+      "label": "EPF",
+      "url": "https://epf.open-webui.myia.io",
+      "auth": "OK",
+      "openai_connectors_total": 12,
+      "openai_omnicoder_flagged": [
+        {
+          "idx": 2,
+          "url": "https://api.mini.text-generation-webui.myia.io/v1",
+          "prefix_id": "Local",
+          "enabled": false
+        }
+      ],
+      "models_total_listed": 20,
+      "models_omnicoder_flagged": [],
+      "audio_tts": {
+        "ENGINE": "openai",
+        "API_KEY": "",
+        "OPENAI_API_BASE_URL": "http://kokoro-tts:8880/v1",
+        "OPENAI_API_KEY_set": true,
+        "MODEL": "kokoro",
+        "VOICE": "ff_siwis",
+        "SPLIT_ON": "punctuation"
+      },
+      "audio_stt_engine": "openai"
+    },
+    {
+      "tenant": "epf-genai",
+      "label": "EPF GenAI",
+      "url": "https://genai.epf.open-webui.myia.io",
+      "auth": "OK",
+      "openai_connectors_total": 12,
+      "openai_omnicoder_flagged": [
+        {
+          "idx": 2,
+          "url": "https://api.mini.text-generation-webui.myia.io/v1",
+          "prefix_id": "Local",
+          "enabled": false
+        }
+      ],
+      "models_total_listed": 22,
+      "models_omnicoder_flagged": [],
+      "audio_tts": {
+        "ENGINE": "openai",
+        "API_KEY": "",
+        "OPENAI_API_BASE_URL": "http://kokoro-tts:8880/v1",
+        "OPENAI_API_KEY_set": true,
+        "MODEL": "kokoro",
+        "VOICE": "ff_siwis",
+        "SPLIT_ON": "punctuation"
+      },
+      "audio_stt_engine": "openai"
+    },
+    {
+      "tenant": "ece",
+      "label": "ECE",
+      "url": "https://ece.open-webui.myia.io",
+      "auth": "OK",
+      "openai_connectors_total": 12,
+      "openai_omnicoder_flagged": [
+        {
+          "idx": 2,
+          "url": "https://api.mini.text-generation-webui.myia.io/v1",
+          "prefix_id": "Local",
+          "enabled": false
+        }
+      ],
+      "models_total_listed": 22,
+      "models_omnicoder_flagged": [],
+      "audio_tts": {
+        "ENGINE": "openai",
+        "API_KEY": "",
+        "OPENAI_API_BASE_URL": "http://kokoro-tts:8880/v1",
+        "OPENAI_API_KEY_set": true,
+        "MODEL": "kokoro",
+        "VOICE": "ff_siwis",
+        "SPLIT_ON": "punctuation"
+      },
+      "audio_stt_engine": "openai"
+    },
+    {
+      "tenant": "esg",
+      "label": "ESG",
+      "url": "https://esg.open-webui.myia.io",
+      "auth": "OK",
+      "openai_connectors_total": 12,
+      "openai_omnicoder_flagged": [
+        {
+          "idx": 2,
+          "url": "https://api.mini.text-generation-webui.myia.io/v1",
+          "prefix_id": "Local",
+          "enabled": false
+        }
+      ],
+      "models_total_listed": 17,
+      "models_omnicoder_flagged": [],
+      "audio_tts": {
+        "ENGINE": "openai",
+        "API_KEY": "",
+        "OPENAI_API_BASE_URL": "http://kokoro-tts:8880/v1",
+        "OPENAI_API_KEY_set": true,
+        "MODEL": "kokoro",
+        "VOICE": "ff_siwis",
+        "SPLIT_ON": "punctuation"
+      },
+      "audio_stt_engine": "openai"
+    },
+    {
+      "tenant": "epita",
+      "label": "EPITA",
+      "url": "https://epita.open-webui.myia.io",
+      "auth": "OK",
+      "openai_connectors_total": 12,
+      "openai_omnicoder_flagged": [
+        {
+          "idx": 2,
+          "url": "https://api.mini.text-generation-webui.myia.io/v1",
+          "prefix_id": "Local",
+          "enabled": false
+        }
+      ],
+      "models_total_listed": 22,
+      "models_omnicoder_flagged": [],
+      "audio_tts": {
+        "ENGINE": "openai",
+        "API_KEY": "",
+        "OPENAI_API_BASE_URL": "http://kokoro-tts:8880/v1",
+        "OPENAI_API_KEY_set": true,
+        "MODEL": "kokoro",
+        "VOICE": "ff_siwis",
+        "SPLIT_ON": "punctuation"
+      },
+      "audio_stt_engine": "openai"
+    },
+    {
+      "tenant": "pauwels",
+      "label": "Formation Pro",
+      "url": "https://pauwels.open-webui.myia.io",
+      "auth": "OK",
+      "openai_connectors_total": 12,
+      "openai_omnicoder_flagged": [
+        {
+          "idx": 2,
+          "url": "https://api.mini.text-generation-webui.myia.io/v1",
+          "prefix_id": "Local",
+          "enabled": false
+        }
+      ],
+      "models_total_listed": 17,
+      "models_omnicoder_flagged": [],
+      "audio_tts": {
+        "ENGINE": "openai",
+        "API_KEY": "",
+        "OPENAI_API_BASE_URL": "http://kokoro-tts:8880/v1",
+        "OPENAI_API_KEY_set": true,
+        "MODEL": "kokoro",
+        "VOICE": "ff_siwis",
+        "SPLIT_ON": "punctuation"
+      },
+      "audio_stt_engine": "openai"
+    }
+  ]
+}
