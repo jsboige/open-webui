@@ -55,7 +55,13 @@ export const CHAT = {
   saveEditButton: '#save-edit-message-button',
   closeEditButton: '#close-edit-message-button',
   confirmEditButton: '#confirm-edit-message-button',
-  availableTools: 'button[aria-label="Available Tools"]',
+  // v0.12.5 localizes the wrench button's aria-label: the fr-FR tenant
+  // renders `button "Outils disponibles"` — an English-only selector silently
+  // stops matching even though the feature works (the button only appears
+  // once selectedToolIds is non-empty, so its absence also means "no tool
+  // enabled" — two very different failures behind one red).
+  availableTools:
+    'button[aria-label="Available Tools" i], button[aria-label="Outils disponibles" i]',
   // Message action bar (ResponseMessage: `{#if message.done}`) — its Copy
   // button only renders once generation fully completed, INCLUDING follow-up
   // rounds after tool calls. The stable `copy-response-button` class is

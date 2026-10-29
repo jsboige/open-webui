@@ -1,6 +1,6 @@
 import { test as setup } from '@playwright/test';
 import { getTenantConfig, getTenantFromProjectName } from './tenant';
-import { AUTH, NAV } from '../helpers/selectors';
+import { AUTH, CHAT, NAV } from '../helpers/selectors';
 import { apiLogin } from '../helpers/api';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -53,8 +53,13 @@ setup('authenticate', async ({ page, browser, request }, testInfo) => {
 
   // Wait for redirect from /auth to main page after successful login
   await page.waitForURL('**/', { timeout: 30_000 });
-  // Wait for the chat interface to fully load
-  await page.waitForLoadState('networkidle', { timeout: 15_000 });
+  // Wait for the chat interface to fully load.
+  // `networkidle` is best-effort only: v0.12.5 keeps a connection open (MCP
+  // tool servers, tool search), so the network may never settle and a healthy
+  // page turned into a red setup on 2026-10-29. The real readiness signal is
+  // the composer being present and usable.
+  await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+  await page.locator(CHAT.input).first().waitFor({ state: 'visible', timeout: 20_000 });
 
   // Fallback dismissal: the API call above should make this modal impossible,
   // but the button is kept for tenants where the setting could not be written.

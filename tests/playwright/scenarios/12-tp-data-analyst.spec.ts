@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { startNewChat, selectModel, chat } from '../helpers/chat';
 import { apiLogin, getModelDetail } from '../helpers/api';
 import { getTenantConfig } from '../fixtures/tenant';
+import { CHAT } from '../helpers/selectors';
 
 /**
  * Scenario 12 — TP Data Analyst Agent: Terminal & Tool Integration
@@ -69,7 +70,7 @@ test.describe('12 — TP Data Analyst Agent', () => {
 
     // The "Available Tools" button appears near the chat input for tool-enabled models
     // It may take a moment to load after model selection
-    const toolsButton = page.locator('button[aria-label="Available Tools"]');
+    const toolsButton = page.locator(CHAT.availableTools);
     // Give it some time — tool loading can be slow
     const isVisible = await toolsButton.isVisible({ timeout: 10_000 }).catch(() => false);
 

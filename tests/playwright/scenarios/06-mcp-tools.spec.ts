@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { startNewChat, selectModel, sendMessage, waitForResponse } from '../helpers/chat';
 import { CHAT, INTEGRATIONS } from '../helpers/selectors';
+import { menuEntry } from '../helpers/locators';
 
 /**
  * 06 — Workspace tools via the Integrations menu.
@@ -21,8 +22,9 @@ async function enableFirstWorkspaceTool(page: Page): Promise<boolean> {
   }
   await menuButton.click();
 
-  // Root menu entry "Tools N" — absent if no workspace tools are installed
-  const toolsEntry = page.getByRole('button', { name: INTEGRATIONS.toolsEntry }).first();
+  // Root menu entry "Tools N" — absent if no workspace tools are installed.
+  // v0.12.5 renders it as `menuitem` (was a plain button): match both.
+  const toolsEntry = menuEntry(page, INTEGRATIONS.toolsEntry);
   if (!(await toolsEntry.isVisible({ timeout: 5_000 }).catch(() => false))) {
     await page.keyboard.press('Escape');
     return false;
@@ -55,7 +57,7 @@ test.describe('06 — Workspace Tools (Integrations menu)', () => {
 
     // Workspace has 4 installed tools (Sub Agent, YouTube Transcript,
     // Visuals Toolkit, LLM Council) — the Tools entry must be present.
-    const toolsEntry = page.getByRole('button', { name: INTEGRATIONS.toolsEntry }).first();
+    const toolsEntry = menuEntry(page, INTEGRATIONS.toolsEntry);
     await expect(toolsEntry).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press('Escape');
   });

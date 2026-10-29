@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ACCOUNT, MODEL } from '../helpers/selectors';
+import { menuEntry } from '../helpers/locators';
 
 test.describe('01 — Authentication & Onboarding', () => {
   test('login with valid credentials loads main page', async ({ page }) => {
@@ -42,9 +43,9 @@ test.describe('01 — Authentication & Onboarding', () => {
     await expect(userMenu).toBeVisible({ timeout: 10_000 });
 
     await userMenu.click();
-    // Settings entry — "Réglages" in v0.10.2 fr (not "Paramètres")
-    await expect(
-      page.getByRole('button', { name: ACCOUNT.settingsEntry }).first()
-    ).toBeVisible({ timeout: 10_000 });
+    // Settings entry — "Réglages" in v0.10.2 fr (not "Paramètres").
+    // v0.12.5 renders the user menu with ARIA menu roles (menuitem), so match
+    // button OR menuitem (see helpers/locators.ts).
+    await expect(menuEntry(page, ACCOUNT.settingsEntry)).toBeVisible({ timeout: 10_000 });
   });
 });
