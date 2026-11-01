@@ -34,6 +34,7 @@ import sys
 from pathlib import Path
 
 DEFAULT_CONTAINER = "open-webui-postgres"
+LOG_NAME = "backup-task.log"  # tee target: the 2026-11-01 03:15 scheduled run failed with exit 1 and left no trace
 DEFAULT_USER = "openwebui"
 DEFAULT_DBS = [
     "myia_db",
@@ -134,6 +135,23 @@ def _is_date(name: str) -> bool:
         return False
 
 
+class _Tee:
+    """Copy writes to the original stream and a log file (scheduled runs have no console)."""
+
+    def __init__(self, original, log):
+        self._original = original
+        self._log = log
+
+    def write(self, s):
+        self._original.write(s)
+        self._log.write(s)
+        self._log.flush()
+
+    def flush(self):
+        self._original.flush()
+        self._log.flush()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Backup OWUI tenant PostgreSQL DBs (pg_dump -Fc).")
     ap.add_argument("--out-dir", default="backups/owui-daily",
@@ -152,6 +170,14 @@ def main() -> int:
     today = _dt.datetime.now().strftime("%Y-%m-%d")
     root = Path(args.out_dir)
     dest_dir = root / today
+
+    if not args.dry_run:
+        root.mkdir(parents=True, exist_ok=True)
+        log = open(root / LOG_NAME, "a", encoding="utf-8")  # noqa: SIM115 - closed at process exit
+        log.write(f"\n--- run {_dt.datetime.now():%Y-%m-%d %H:%M:%S} exit-pending ---\n")
+        log.flush()
+        sys.stdout = _Tee(sys.stdout, log)
+        sys.stderr = _Tee(sys.stderr, log)
 
     print(f"=== OWUI tenant backup — container={args.container} dest={dest_dir} "
           f"{'(DRY-RUN)' if args.dry_run else ''} ===")
