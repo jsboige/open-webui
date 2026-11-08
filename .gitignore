@@ -335,3 +335,7 @@ test-results/
 playwright-report/
 
 .cptr
+/evals/
+
+# Local temporary fixtures and screenshots
+/tmp/
